@@ -141,12 +141,12 @@ do
 			scmd="$scmd $sshuser@$sshhost "
 
 			cmd="/usr/local/bin/smbclient -d2 -E -A%s //$smbhost/$smbshare -D / -c 'tarmode full' -Tc%s %s -"
-			printf "$cmd" $auth $nopt $nfil > /dev/stderr
+			printf "$cmd" $auth $nopt "$nfil" > /dev/stderr
 			{
 				echo "d=\$(mktemp -d /tmp/.smbbackup.XXXXXXXXXX)"
 				echo "cd \$d"
 				if [ "$nfil" ]; then
-					echo "touch -t \"$(date -r $(stat -f%c $nfil) +"%Y%m%d%H%M.%S")\" timestamp"
+					echo "touch -t \"$(date -r $(stat -f%c "$nfil") +"%Y%m%d%H%M.%S")\" timestamp"
 					smbfile="timestamp"
 				else
 					smbfile=""
@@ -177,9 +177,9 @@ do
 		[ "$smbsubdir" ] || smbsubdir="/"
 		#echo "host=\"$host\" smbshare=\"$smbshare\" subdir=\"$smbsubdir\""
 		backupmethod() {
-			echo "smbclient -d2 -E -A$auth \"//$host/$smbshare\" -D \"$smbsubdir\" -c 'tarmode full' -Tc$nopt $nfil -" > /dev/stderr
+			echo "smbclient -d2 -E -A$auth \"//$host/$smbshare\" -D \"$smbsubdir\" -c 'tarmode full' -Tc$nopt \"$nfil\" -" > /dev/stderr
 			smbclient -d2 -E -A$auth "//$host/$smbshare" -D "$smbsubdir" \
-				-c 'tarmode full' -Tc$nopt $nfil - 
+				-c 'tarmode full' -Tc$nopt "$nfil" - 
 		}
 		listmethod() {
 			tar tvzf "$outfile" | \
@@ -197,7 +197,7 @@ do
 		backupmethod() {
 			cmd="dump -h 0 "
 			if [ "$nfil" ]; then
-				cmd="$cmd -T \"\$(date -r $(stat -f%c $nfil) +"%a %b %e %H:%M:%S %Y")\" "
+				cmd="$cmd -T \"\$(date -r $(stat -f%c "$nfil") +"%a %b %e %H:%M:%S %Y")\" "
 			fi
 			cmd="$cmd -0a -f - $file"
 			echo "$cmd" > /dev/stderr
@@ -226,7 +226,7 @@ do
 			cmd="$cmd $authuser@$host "
 			cmd="$cmd dump -h 0 "
 			if [ "$nfil" ]; then
-				cmd="$cmd -T \"$(date -r $(stat -f%c $nfil) +"%a %b %e %H:%M:%S %Y")\" "
+				cmd="$cmd -T \"$(date -r $(stat -f%c "$nfil") +"%a %b %e %H:%M:%S %Y")\" "
 			fi
 			cmd="$cmd -0a -f - $file"
 			echo "$cmd" > /dev/stderr
@@ -255,7 +255,7 @@ do
 			cmd="$cmd $authuser@$host "
 			cmd="$cmd /usr/local/sbin/vos dump $vol "
 			if [ "$nfil" ]; then
-				cmd="$cmd -time \"$(date -r $(stat -f%c $nfil) +"%m/%d/%Y %H:%M")\" "
+				cmd="$cmd -time \"$(date -r $(stat -f%c "$nfil") +"%m/%d/%Y %H:%M")\" "
 			fi
 			cmd="$cmd -verbose -localauth"
 			echo "$cmd" > /dev/stderr
@@ -329,7 +329,7 @@ do
 	0)
 	;;
 	[1-9]*)
-		echo "Date of last level $lastl: $(date -r $(stat -f%c $nfil))"
+		echo "Date of last level $lastl: $(date -r $(stat -f%c "$nfil"))"
 	;;
 	esac
 	tmpfile="$(mktemp "$datadir/$host/.$outfile.XXXXXXXXXXX")"
