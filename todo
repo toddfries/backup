@@ -1,0 +1,30 @@
+- backup the local system
+  - dump://hostname/dir
+    - hostname is only for the dir creation
+    - fix the level>0 time issue
+- backup samba shares accessable only via smbclient on a remote system
+  - sshsmb://user@hostname/authname@remotesambahost/remotesharename
+  - timestamp/auth info is xfered by execing a shell remotely, fix this!
+- concurrency
+ - 1st implement rough `maxconcurrence' per backup set
+  - look at fetchitdave for inspiration
+ - 2nd implement `maxconcurrence' per host and per backup set
+ - setup level 0 backups in one queue, non lebel 0 in another, to
+   permit new hosts etc to not keep level>0 backups from happening for days
+- move filelist creation earlier, so .host_filesyst.level.filelist is moved
+   with the rest instead of created after the move
+ - perhaps even create the filelist via 'tee' and a fifo or somesuch
+   so that reading the data happens as is it written to the disk, not
+   reading it back causing more disk io
+
+- error cleanup, don't leave unfinished backups lying around
+- verify collections don't have more than one backup process running,
+   so backups that take more than 24hrs will block other backups from
+   running
+  - almost makes some sense to have levels somewhat automatic, so one
+    does not end up skipping level 1's for example because the night before's
+    backup took too long
+
+- show the time the backup is relative to, if not level 0
+- permit using '-h' flag of dump
+- permit archiving to tape, e.g. ipmr

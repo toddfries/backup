@@ -1,0 +1,56 @@
+Requirements:
+
+	dump, gzip, stat, restore, bc, ssh and optionally smbclient
+
+To setup this backup script, decide on a name for the collection of
+backups to run together as well as the directory backups should be
+archived to and paste this shell code to a root ksh shell:
+
+  collection=mysite
+  datadir=/backups
+  mkdir -p /etc/backup/$collection
+  echo datadir=$datadir > /etc/backup/$collection/conf
+  useradd -d /home/.backup -m -s /sbin/nologin _backup
+
+Systems to be backed up may be samba shares or remotely dumped systems via ssh.
+
+Remote systems via ssh:
+
+
+	backup-addhost $collection hostname	
+		.. this will create a ssh hostkey, and give instructions on
+		   placing it in the remote users .ssh/authorized_key file
+	  	.. watch /var/log/authlog for IP coming from
+		.. verify key of remote host
+
+	  useradd -d /home/.backup -m -s /bin/sh -G operator _backup
+
+	add the single line to /etc/backup/$collection/dumplist
+
+		sshdump://_backup@hostname/var
+
+	to backup on hostname via user _backup the /var directory.
+
+Remote systems via samba:
+
+	create a file /etc/backup/$collection/hostname_smbauthAUTH01
+	contents should be:
+
+		username = sambauser
+		password = sambapass
+		domain = workgroupdomainname
+
+	add the single line to /etc/backup/$collection/dumplist
+
+		smb://AUTH01@hostname/sharename
+
+	to backup on hostname via perms in the AUTH01 file the sharename share.
+
+Unlike amanda, this system does not require write privileges to samba shares,
+nor does it muck with /etc/dumpdates, nor a rocket science degree to run.
+
+With the preliminaries above out of the way, run this program as follows:
+
+	su -m _backup -c "/usr/local/sbin/backup $collection"
+
+Enjoy!
