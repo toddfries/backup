@@ -1,9 +1,9 @@
 - backup the local system
-  - dump://hostname/dir
-    - hostname is only for the dir creation
+  x dump://hostname/dir
+    x hostname is only for the dir creation
     - fix the level>0 time issue
-- backup samba shares accessable only via smbclient on a remote system
-  - sshsmb://user@hostname/authname@remotesambahost/remotesharename
+x backup samba shares accessable only via smbclient on a remote system
+  x sshsmb://user@hostname/authname@remotesambahost/remotesharename
   - timestamp/auth info is xfered by execing a shell remotely, fix this!
 - concurrency
  - 1st implement rough `maxconcurrence' per backup set
@@ -18,6 +18,7 @@
    reading it back causing more disk io
 
 - error cleanup, don't leave unfinished backups lying around
+  - use trap
 - verify collections don't have more than one backup process running,
    so backups that take more than 24hrs will block other backups from
    running
@@ -25,6 +26,8 @@
     does not end up skipping level 1's for example because the night before's
     backup took too long
 
-- show the time the backup is relative to, if not level 0
-- permit using '-h' flag of dump
-- permit archiving to tape, e.g. ipmr
+x show the time the backup is relative to, if not level 0
+x permit using '-h 0' flag of dump
+  (implemented by default, have to code more to make it optional)
+- implement archiving to tape, e.g. ipmr
+- update sshsmb to match smb regarding smbshare/smbdir
