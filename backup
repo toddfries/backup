@@ -61,8 +61,8 @@ else
 fi
 
 goodsummary() {
-	size=$(($(stat -f%z $outfile)+0))
-	ucsize=$(($($aprog -d < $outfile | wc -c)+0))
+	size=$(($(stat -f%z "$outfile")+0))
+	ucsize=$(($($aprog -d < "$outfile" | wc -c)+0))
 	unit=B
 	if [ size -gt 1000 -a ucsize -gt 1000 ]; then
 		size="$(echo "scale=5;$size/1024"|bc)"
@@ -129,9 +129,10 @@ do
 		eval $(echo "$f" | sed 's,sshsmb://\([^@]*\)@\([^/]*\)/\([^@]*\)@\([^/]*\)/\(.*\)$,sshuser=\1 sshhost=\2 smbauth=\3 smbhost=\4 smbshare=\5,')
 		host=$sshhost
 		auth=$bkd/${sshhost}_${smbhost}smbauth$smbauth
+		smbshare="$(echo "$smbshare"|sed 's/%SPACE%/ /g')"
 		f="${sshhost}-${smbhost}_${smbshare}"
 		backupmethod() {
-			scmd="ssh -C "
+			scmd="ssh $sshxtra -C "
 			if [ -f $bkd/${sshhost}_sshconfig ]; then
 				scmd="$scmd -F $bkd/${sshhost}_sshconfig "
 			fi
@@ -158,7 +159,7 @@ do
 			} | $scmd sh
 		}
 		listmethod() {
-			tar tvzf $outfile | \
+			tar tvzf "$outfile" | \
 				awk '/drwx/ { next } \
 				    { \
 					$1=$2=$3=$4=$5=$6=$7=$8=""; \
@@ -168,16 +169,20 @@ do
 	;;
 	smb*)
 		host=$(echo "$f" | sed 's,smb://.*@\([^/]*\)/.*$,\1,')
-		auth=$bkd/${host}_smbauth$(echo "$f" | sed 's,smb://\(.*\)@.*$,\1,')
-		f=$(echo "$f" | sed 's,smb://.*@\([^/]*\)/\(.*\)$,//\1/\2,')
-		file=${f##*/}
+		auth=$bkd/${host}_smbauth$(echo "$f" | sed 's,smb://\([^@]*\)@.*$,\1,')
+		f=$(echo "$f" | sed 's/%SPACE%/ /g;s,smb://[^@]*@\([^/]*\)/\(.*\)$,//\1/\2,')
+		file="$(echo "$f" | sed 's,//[^/]*/\(.*\)$,\1,')"
+		smbshare="$(echo "$f" | sed 's,//[^/]*/\([^/]*\).*$,\1,')"
+		smbsubdir="$(echo "$f" | sed 's,//[^/]*/[^/]*\(/.*$\),\1,')"
+		[ "$smbsubdir" ] || smbsubdir="/"
+		#echo "host=\"$host\" smbshare=\"$smbshare\" subdir=\"$smbsubdir\""
 		backupmethod() {
-			echo "smbclient -d2 -E -A$auth $f -D / -c 'tarmode full' -Tc$nopt $nfil -" > /dev/stderr
-			smbclient -d2 -E -A$auth $f -D / \
+			echo "smbclient -d2 -E -A$auth \"//$host/$smbshare\" -D \"$smbsubdir\" -c 'tarmode full' -Tc$nopt $nfil -" > /dev/stderr
+			smbclient -d2 -E -A$auth "//$host/$smbshare" -D "$smbsubdir" \
 				-c 'tarmode full' -Tc$nopt $nfil - 
 		}
 		listmethod() {
-			tar tvzf $outfile | \
+			tar tvzf "$outfile" | \
 				awk '/drwx/ { next } \
 				    { \
 					$1=$2=$3=$4=$5=$6=$7=$8=""; \
@@ -192,14 +197,15 @@ do
 		backupmethod() {
 			cmd="dump -h 0 "
 			if [ "$nfil" ]; then
-				cmd="$cmd -T $(date -r $(stat -f%c $nfil) +"%a %b %e %H:%M:%S %Y") "
+				cmd="$cmd -T \"\$(date -r $(stat -f%c $nfil) +"%a %b %e %H:%M:%S %Y")\" "
 			fi
 			cmd="$cmd -0a -f - $file"
 			echo "$cmd" > /dev/stderr
+			#set -x
 			$cmd
 		}
 		listmethod() {
-			gzip -d < $outfile | restore -tvf - | \
+			gzip -d < "$outfile" | restore -tvf - | \
 				awk '	/^dir/	{next} \
 					/leaf/	{ $1="";print} \
 						{print}'
@@ -212,7 +218,7 @@ do
 		file=$(echo "$f" | sed 's,sshdump://.*@[^/]*\(/.*\)$,\1,')
 		f="$host:$file"
 		backupmethod() {
-			cmd="ssh -C "
+			cmd="ssh $sshxtra -C "
 			if [ -f $bkd/${host}_sshconfig ]; then
 				cmd="$cmd -F $bkd/${host}_sshconfig "
 			fi
@@ -224,10 +230,11 @@ do
 			fi
 			cmd="$cmd -0a -f - $file"
 			echo "$cmd" > /dev/stderr
+			#set -x
 			$cmd
 		}
 		listmethod() {
-			gzip -d < $outfile | restore -tvf - | \
+			gzip -d < "$outfile" | restore -tvf - | \
 				awk '	/^dir/	{next} \
 					/leaf/	{ $1="";print} \
 						{print}'
@@ -240,7 +247,7 @@ do
 		vol=$(echo "$f" | sed 's,sshafs://.*@[^/]*/\(.*\)$,\1,')
 		f="$host:$vol"
 		backupmethod() {
-			cmd="ssh -C "
+			cmd="ssh $sshxtra -C "
 			if [ -f $bkd/${host}_sshconfig ]; then
 				cmd="$cmd -F $bkd/${host}_sshconfig "
 			fi
@@ -260,10 +267,10 @@ do
 	;;
 	esac
 	[ -d $host ] || mkdir $host
-	fn=$(echo $f | sed 's,//,,;s,[/:],_,g')
+	fn="$(echo "$f" | sed 's,//,,;s,[/:],_,g')"
 
 	# Do level `0' if it does not already exist
-	[ -f $host/$fn.0 -a -f $host/$fn.0.timestamp ] || thisl=0
+	[ -f "$host/$fn.0" -a -f "$host/$fn.0.timestamp" ] || thisl=0
 
 	high=-1
 	tmp=-1
@@ -314,7 +321,7 @@ do
 	aprog=gzip
 	aopt=9
 
-	outfile=$fn.$thisl
+	outfile="$fn.$thisl"
 	start=$(date +%s)
 	echo "$f"
 	echo "Date of this level $thisl: $(date -r $start)"
@@ -325,23 +332,44 @@ do
 		echo "Date of last level $lastl: $(date -r $(stat -f%c $nfil))"
 	;;
 	esac
-	tmpfile=$(mktemp $datadir/$host/.$outfile.XXXXXXXXXXX)
+	tmpfile="$(mktemp "$datadir/$host/.$outfile.XXXXXXXXXXX")"
 	outfile="$host/$outfile"
-	touch $tmpfile.timestamp
-	backupmethod 2> $tmpfile.stderr | \
-		$aprog -$aopt > $tmpfile && \
-		mv $tmpfile $outfile && \
-		mv $tmpfile.timestamp $outfile.timestamp && \
-		mv $tmpfile.stderr $outfile.stderr && \
-		listmethod 2> /dev/null | $aprog -$aopt > $outfile.filelist
+	touch "$tmpfile.timestamp"
+	retrycount=0
+	#echo "$tmpfile"
+	#set -x
+	while [ retrycount -lt 30 ]; do
+	backupmethod 2> "$tmpfile.stderr" | \
+		$aprog -$aopt > "$tmpfile" && \
+		mv "$tmpfile" "$outfile" && \
+		mv "$tmpfile.timestamp" "$outfile.timestamp" && \
+		mv "$tmpfile.stderr" "$outfile.stderr" && \
+		listmethod 2> /dev/null | $aprog -$aopt > "$outfile.filelist"
+	if [ "$( tail "$outfile.stderr" | grep "no address associated" )" ]
+	then
+		echo "DNS failure for $f"
+		echo "Retrying..."
+		let retrycount=retrycount+1
+		continue
+	fi
+	break
+	done
 	stop=$(date +%s)
 
-	if [ -f $outfile ]; then
+	if [ "$( tail "$outfile.stderr" | grep "Connection reset by peer" )" ]
+	then
+		echo "Backup failed for $f -> $outfile"
+		echo "Remote peer aborted early, removing backup"
+		[ -f "$outfile.stderr" ] && cat "$outfile.stderr"
+		rm "${outfile}"*
+	fi
+
+	if [ -f "$outfile" ]; then
 		goodsummary
 	else
 		echo "Backup failed for $f -> $outfile"
-		[ -f $tmpfile.stderr ] && cat $tmpfile.stderr
-		rm $tmpfile.*
+		[ -f "$tmpfile.stderr" ] && cat "$tmpfile.stderr"
+		rm "$tmpfile".*
 	fi
 	echo
 done
@@ -359,7 +387,7 @@ if [ "$remotemirror" ]; then
 	tmpfile=$(mktemp $datadir/.ssh.XXXXXXXXXXX)
 	{
 		echo "#!/bin/sh" 
-		echo -n "ssh "
+		echo -n "ssh $sshxtra "
 		if [ -f $bkd/${host}_sshkey ]; then
 			echo -n "-i $bkd/${host}_sshkey "
 		fi
