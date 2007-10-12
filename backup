@@ -173,7 +173,7 @@ do
 		f=$(echo "$f" | sed 's/%SPACE%/ /g;s,smb://[^@]*@\([^/]*\)/\(.*\)$,//\1/\2,')
 		file="$(echo "$f" | sed 's,//[^/]*/\(.*\)$,\1,')"
 		smbshare="$(echo "$f" | sed 's,//[^/]*/\([^/]*\).*$,\1,')"
-		smbsubdir="$(echo "$f" | sed 's,//[^/]*/[^/]*\(/.*$\),\1,')"
+		smbsubdir="$(echo "$f" | sed 's,//[^/]*/[^/]*\(/.*$\),\1,;s,^//.*$,,')"
 		[ "$smbsubdir" ] || smbsubdir="/"
 		#echo "host=\"$host\" smbshare=\"$smbshare\" subdir=\"$smbsubdir\""
 		backupmethod() {
