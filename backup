@@ -178,8 +178,13 @@ do
 		#echo "host=\"$host\" smbshare=\"$smbshare\" subdir=\"$smbsubdir\""
 		backupmethod() {
 			echo "smbclient -d2 -E -A$auth \"//$host/$smbshare\" -D \"$smbsubdir\" -c 'tarmode full' -Tc$nopt \"$nfil\" -" > /dev/stderr
-			smbclient -d2 -E -A$auth "//$host/$smbshare" -D "$smbsubdir" \
-				-c 'tarmode full' -Tc$nopt "$nfil" - 
+			if [ "$nfil" ]; then
+				smbclient -d2 -E -A$auth "//$host/$smbshare" -D "$smbsubdir" \
+					-c 'tarmode full' -Tc$nopt "$nfil" - 
+			else
+				smbclient -d2 -E -A$auth "//$host/$smbshare" -D "$smbsubdir" \
+					-c 'tarmode full' -Tc  - 
+			fi
 		}
 		listmethod() {
 			tar tvzf "$outfile" | \
