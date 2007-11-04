@@ -10,7 +10,7 @@ archived to and paste this shell code to a root ksh shell:
   datadir=/backups
   mkdir -p /etc/backup/$collection
   echo datadir=$datadir > /etc/backup/$collection/conf
-  useradd -d /home/.backup -m -s /sbin/nologin _backup
+  useradd -d /home/.backup -g =uid -m -s /bin/sh -G operator _backup
 
 Systems to be backed up may be samba shares or remotely dumped systems via ssh.
 
@@ -23,7 +23,7 @@ Remote systems via ssh:
 	  	.. watch /var/log/authlog for IP coming from
 		.. verify key of remote host
 
-	  useradd -d /home/.backup -m -s /bin/sh -G operator _backup
+	  useradd -d /home/.backup -g =uid -m -s /bin/sh -G operator _backup
 
 	add the single line to /etc/backup/$collection/dumplist
 
