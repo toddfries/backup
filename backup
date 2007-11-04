@@ -220,6 +220,31 @@ do
 						{print}'
 		}
 	;;
+	sshbackup*) # sshbackup://user@host/sub/dir/or/device
+		host=$(echo "$f" | sed 's,sshbackup://.*@\([^/]*\)/.*$,\1,')
+		authkey=$bkd/${host}_sshkey
+		authuser=$(echo "$f" | sed 's,sshbackup://\(.*\)@.*$,\1,')
+		file=$(echo "$f" | sed 's,sshbackup://.*@[^/]*\(/.*\)$,\1,')
+		f="$host:$file"
+		backupmethod() {
+			cmd="ssh $sshxtra -C "
+			if [ -f $bkd/${host}_sshconfig ]; then
+				cmd="$cmd -F $bkd/${host}_sshconfig "
+			fi
+			cmd="$cmd -i $authkey "
+			cmd="$cmd $authuser@$host "
+			cmd="$cmd /usr/sbin/backup -${thisl}uf - $file "
+			echo "$cmd" > /dev/stderr
+			#set -x
+			$cmd
+		}
+		listmethod() {
+			gzip -d < "$outfile" | restore -tvf - | \
+				awk '	/^dir/	{next} \
+					/leaf/	{ $1="";print} \
+						{print}'
+		}
+	;;
 	sshdump*) # sshdump://user@host/sub/dir/or/device
 		host=$(echo "$f" | sed 's,sshdump://.*@\([^/]*\)/.*$,\1,')
 		authkey=$bkd/${host}_sshkey
