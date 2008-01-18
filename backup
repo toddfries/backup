@@ -390,7 +390,7 @@ do
 	done
 	stop=$(date +%s)
 
-	if [ "$( tail "$outfile.stderr" | grep "Connection reset by peer" )" ]
+	if [ "$( tail "$outfile.stderr" | egrep "Connection reset by peer|Connection timed out" )" ]
 	then
 		echo "Backup failed for $f -> $outfile"
 		echo "Remote peer aborted early, removing backup"
