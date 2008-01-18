@@ -1,3 +1,7 @@
+- metadata
+  - keep track of files that exist each backup
+    - consider merits of storing as a list vs differential list?
+  - keep track of permissions and/or acl's where applicable
 - backup the local system
   x dump://hostname/dir
     x hostname is only for the dir creation
@@ -31,3 +35,4 @@ x permit using '-h 0' flag of dump
   (implemented by default, have to code more to make it optional)
 - implement archiving to tape, e.g. ipmr
 - update sshsmb to match smb regarding smbshare/smbdir
+- write recover script to restore data
