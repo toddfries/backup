@@ -1,0 +1,16 @@
+On the backup server, to set it up:
+
+setname=mycompany-mail
+mkdir -p /etc/backup/$setname
+cd /etc/backup/$setname
+cat <<EOF  > conf
+datadir=/backups
+#sshxtra="-o bindaddress=backup.example.com "
+# set -A levels 6 5 4 3 2 1 7 6
+EOF
+/usr/local/sbin/backup-addhost $setname localhost
+echo dump://localhost/ > dumplist
+
+Per system (including the backup server which can be -s /sbin/nologin):
+
+useradd -d /home/.backup -g =uid -m -s /bin/sh -G operator _backup
