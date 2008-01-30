@@ -1,6 +1,7 @@
 - metadata
   - keep track of files that exist each backup
     - consider merits of storing as a list vs differential list?
+    - notice when files move location
   - keep track of permissions and/or acl's where applicable
 - backup the local system
   x dump://hostname/dir
@@ -36,3 +37,25 @@ x permit using '-h 0' flag of dump
 - implement archiving to tape, e.g. ipmr
 - update sshsmb to match smb regarding smbshare/smbdir
 - write recover script to restore data
+
+As spoken to a big chemical client:
+ - the ability to set a parallel variable per host and per backup system,
+   to backup multiple systems simultaneously; serially backing up systems
+   when one system hangs (i.e. dump -L on FreeBSD) does not let things
+   backup as expected
+ - the ability to set a timeout on each backup process if it has not returned
+   data within a timeout interval  
+ - creating a 'recover' command to automate much of the data recovering phase
+ - make the .filelist files a db of some sort instead of a text list to
+   quickly process large volumes during recovery
+ - create the .filelist `on the fly' while doing the backup; currently it
+   requires a separate pass
+ - compress via 'gzip' on the client instead of via ssh -C on the client,
+   decompressing on the backup host, and then re-compressing on the backup     
+   host
+ - permit alternate compression mechanisms, lzma is best but chews cpu like
+   a banshee  
+ - integrate gpg for encrypted public private key backups
+ - integrate openssl for passphrase encrypted backups
+ - implement archiving to tape
+
