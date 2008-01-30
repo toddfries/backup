@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/usr/local/bin/ksh
 
 # Copyright (c) 2001-2007 Todd T. Fries <todd@fries.net>
 #
@@ -36,6 +36,10 @@ fi
 # The below does no redundant copies and only requires two restores max
 # recover any lost data, and archives one month prior of a full backup
 
+#
+# default over-ridable variables
+#
+
 # 0 / 7 is Sunday
 
 # weekdays    0 1 2 3 4 5 6 7
@@ -43,6 +47,10 @@ set -A levels 6 5 4 3 2 1 7 6
 
 # to do inc only and no redundancy
 #set -A levels 3 4 5 6 7 1 2 3
+
+outputstart=",--------------------------------------------"
+outputstop="\`--------------------------------------------"
+datefmt="%m/%d/%Y %H:%M:%S %Z"
 
 # backup directory
 bkd="/etc/backup/$1"
@@ -67,8 +75,8 @@ else
 fi
 
 goodsummary() {
-	size=$(($(stat -f%z "$outfile")+0))
-	ucsize=$(($($aprog -d < "$outfile" | wc -c)+0))
+	size=$(echo $(stat -f%z "$outfile")+0 | bc)
+	ucsize=$( echo $($aprog -d < "$outfile" | wc -c)+0 | bc)
 	unit=B
 	if [ size -gt 1000 -a ucsize -gt 1000 ]; then
 		size="$(echo "scale=5;$size/1024"|bc)"
@@ -87,17 +95,25 @@ goodsummary() {
 	fi
 	comp=$(echo "scale=2;100*$size/$ucsize"|bc)
 	ratio=$(echo "scale=2;100-$comp"|bc)
-	printf "%.2f$unit -> %.2f$unit, compressed ${comp}%%, ratio $ratio%%\n" $ucsize $size
-	printf "Took %ds, %.2f$unit/s -> %.2f$unit/s, %s -> %s\n" \
-	    $((stop-start)) \
+	summdate="$(date -r $stop +"$datefmt")"
+	_log "$summdate" "Stop  of this level $thisl"
+	_log "$summdate" "$host time $((stop-start))s"
+	_log "$summdate" "$(printf "uncomp. %.2f$unit vs comp. %.2f$unit" $ucsize $size)"
+	_log "$summdate" "$(printf "uncomp. %.2f$unit/s vs comp. %.2f$unit/s" \
 	    $(echo "scale=2;$ucsize/($stop-$start)"|bc) \
-	    $(echo "scale=2;$size/($stop-$start)"|bc) \
-	    "$(date -r $start)" \
-	    "$(date -r $stop)"
+	    $(echo "scale=2;$size/($stop-$start)"|bc) )"
+	_log "$summdate" "comp. ${comp}%, ratio $ratio%"
 	return 0
 }
+_log() {
+	printf "%s %s\n" "$1" "$2"
+}
+log() {
+	_log "$(date +"$datefmt")" "$@"
+}
 
-echo "Starting $0.. $@"
+globalstart=$(date +%s)
+_log "$(date -r $globalstart +"$datefmt")" "backup[$$] of $@ set starting"
 
 dayofweek=$(date +%w)
 l=${levels[$dayofweek]}
@@ -109,13 +125,13 @@ if false; then
 case "$m" in
 01|1)
         l=0
-        echo "1st day of month -> level $l"
+        log "1st day of month -> level $l"
         rotate() {
                 mv "$1" "$1".0
         }
 ;;
 *)
-        echo "Weekday $d -> level $l"
+        log "Weekday $d -> level $l"
         rotate() {
                 :
         }
@@ -130,6 +146,7 @@ do
 	thisl=$l
 	case "$f" in
 	sshsmb*)
+		method=sshsmb
 		eval $(echo "$f" | sed 's,sshsmb://\([^@]*\)@\([^/]*\)/\([^@]*\)@\([^/]*\)/\(.*\)$,sshuser=\1 sshhost=\2 smbauth=\3 smbhost=\4 smbshare=\5,')
 		host=$sshhost
 		auth=$bkd/${sshhost}_${smbhost}smbauth$smbauth
@@ -145,7 +162,7 @@ do
 			scmd="$scmd $sshuser@$sshhost "
 
 			cmd="$smbclient -d2 -E -A%s //$smbhost/$smbshare -D / -c 'tarmode full' -Tc%s %s -"
-			printf "$cmd" $auth $nopt "$nfil" > /dev/stderr
+			log "$cmd" $auth $nopt "$nfil" > /dev/stderr
 			{
 				echo "d=\$(mktemp -d /tmp/.smbbackup.XXXXXXXXXX)"
 				echo "cd \$d"
@@ -172,6 +189,7 @@ do
 		}
 	;;
 	smb*)
+		method=smb
 		host=$(echo "$f" | sed 's,smb://.*@\([^/]*\)/.*$,\1,')
 		auth=$bkd/${host}_smbauth$(echo "$f" | sed 's,smb://\([^@]*\)@.*$,\1,')
 		f=$(echo "$f" | sed 's/%SPACE%/ /g;s,smb://[^@]*@\([^/]*\)/\(.*\)$,//\1/\2,')
@@ -199,28 +217,108 @@ do
 					print }' | sed 's/^[ ]*\./\\tmp/' 
 		}
 	;;
+	tar*) # tar://host/sub/dir/or/device
+		method=tar
+		host=$(echo "$f" | sed 's,tar://\([^/]*\)/.*$,\1,')
+		file=$(echo "$f" | sed 's,tar://[^/]*\(/.*\)$,\1,')
+		f="$host:$file"
+		backupmethod() {
+			# would like -O but FreeBSD doesn't have it, bah
+			cmd="/bin/pax -Xwv "
+			if [ "$nfil" ]; then
+				cmd="$cmd -T $(date -r $(stat -f%c "$nfil") +"%Y%m%d%H%M.%S") "
+			fi
+			cmd="$cmd ."
+			log "$cmd $file" > /dev/stderr
+			#set -x
+			if [ -d $file ]; then
+				( cd $file; $cmd )
+			else
+				bd=$(dirname $file)
+				if [ -d $bd ]; then
+					( cd $bd; $cmd $(basename $file) )
+				fi
+			fi
+		}
+		listmethod() {
+			gzip -d < "$outfile" | tar -tvf - | \
+				awk '	/^d/	{next} \
+					/^\-/	{ $1="";print} \
+						{print}'
+			if [ -f "${outfile}.stderr" ]; then
+				if egrep "^pax: " "${outfile}.stderr" > /dev/null 2>&1; then
+					log "$outputstart"  > /dev/stderr
+					egrep "^pax: " "${outfile}.stderr"                    > /dev/stderr
+					log "$outputstop" > /dev/stderr
+				fi
+			fi
+		}
+	;;
+	sshtar*) # sshtar://host/sub/dir/or/device
+		method=sshtar
+		host=$(echo "$f" | sed 's,sshtar://.*@\([^/]*\)/.*$,\1,')
+		authkey=$bkd/${host}_sshkey
+		authuser=$(echo "$f" | sed 's,sshtar://\(.*\)@.*$,\1,')
+		file=$(echo "$f" | sed 's,sshtar://.*@[^/]*\(/.*\)$,\1,')
+		f="$host:$file"
+		backupmethod() {
+			#set -x
+			cmd="ssh $sshxtra -C "
+			if [ -f $bkd/${host}_sshconfig ]; then
+				cmd="$cmd -F $bkd/${host}_sshconfig "
+			fi
+			cmd="$cmd -i $authkey "
+			cmd="$cmd $authuser@$host "
+			# would like -O but FreeBSD doesn't have it, bah
+			cmd="$cmd sh -c \"cd $file;/bin/pax -Xwv "
+			if [ "$nfil" ]; then
+				cmd="$cmd -T $(date -r $(stat -f%c "$nfil") +"%y%m%d%H%M.%S") "
+			fi
+			cmd="$cmd .\""
+			log "$cmd $file" > /dev/stderr
+			$cmd
+		}
+		listmethod() {
+			gzip -d < "$outfile" | tar -tvf - | \
+				awk '	/^d/	{next} \
+					/^\-/	{ $1="";print} \
+						{print}'
+			if [ -f "${outfile}.stderr" ]; then
+				if egrep "^pax: " "${outfile}.stderr" > /dev/null 2>&1; then
+					log "$outputstart"  > /dev/stderr
+					egrep "^pax: " "${outfile}.stderr"                    > /dev/stderr
+					log "$outputstop" > /dev/stderr
+				fi
+			fi
+		}
+	;;
 	dump*) # dump://host/sub/dir/or/device
+		method=dump
 		host=$(echo "$f" | sed 's,dump://\([^/]*\)/.*$,\1,')
 		file=$(echo "$f" | sed 's,dump://[^/]*\(/.*\)$,\1,')
 		f="$host:$file"
 		backupmethod() {
-			cmd="dump -h 0 "
+			cmd="/sbin/dump -h 0 "
+			case "`uname -s`" in
+			FreeBSD) cmd="$cmd -L ";;
+			esac
 			if [ "$nfil" ]; then
 				cmd="$cmd -T \"\$(date -r $(stat -f%c "$nfil") +"%a %b %e %H:%M:%S %Y")\" "
 			fi
 			cmd="$cmd -0a -f - $file"
-			echo "$cmd" > /dev/stderr
+			log "$cmd" > /dev/stderr
 			#set -x
 			$cmd
 		}
 		listmethod() {
-			gzip -d < "$outfile" | restore -tvf - | \
+			gzip -d < "$outfile" | restore -tyvf - | \
 				awk '	/^dir/	{next} \
 					/leaf/	{ $1="";print} \
 						{print}'
 		}
 	;;
 	sshbackup*) # sshbackup://user@host/sub/dir/or/device
+		method=sshbackup
 		host=$(echo "$f" | sed 's,sshbackup://.*@\([^/]*\)/.*$,\1,')
 		authkey=$bkd/${host}_sshkey
 		authuser=$(echo "$f" | sed 's,sshbackup://\(.*\)@.*$,\1,')
@@ -234,18 +332,19 @@ do
 			cmd="$cmd -i $authkey "
 			cmd="$cmd $authuser@$host "
 			cmd="$cmd /usr/sbin/backup -${thisl}uf - $file "
-			echo "$cmd" > /dev/stderr
+			log "$cmd" > /dev/stderr
 			#set -x
 			$cmd
 		}
 		listmethod() {
-			gzip -d < "$outfile" | restore -tvf - | \
+			gzip -d < "$outfile" | restore -tvyf - | \
 				awk '	/^dir/	{next} \
 					/leaf/	{ $1="";print} \
 						{print}'
 		}
 	;;
 	sshdump*) # sshdump://user@host/sub/dir/or/device
+		method=sshdump
 		host=$(echo "$f" | sed 's,sshdump://.*@\([^/]*\)/.*$,\1,')
 		authkey=$bkd/${host}_sshkey
 		authuser=$(echo "$f" | sed 's,sshdump://\(.*\)@.*$,\1,')
@@ -258,23 +357,24 @@ do
 			fi
 			cmd="$cmd -i $authkey "
 			cmd="$cmd $authuser@$host "
-			cmd="$cmd dump -h 0 "
+			cmd="$cmd /sbin/dump -h 0 "
 			if [ "$nfil" ]; then
 				cmd="$cmd -T \"$(date -r $(stat -f%c "$nfil") +"%a %b %e %H:%M:%S %Y")\" "
 			fi
 			cmd="$cmd -0a -f - $file"
-			echo "$cmd" > /dev/stderr
+			log "$cmd" > /dev/stderr
 			#set -x
 			$cmd
 		}
 		listmethod() {
-			gzip -d < "$outfile" | restore -tvf - | \
+			gzip -d < "$outfile" | restore -tvyf - | \
 				awk '	/^dir/	{next} \
 					/leaf/	{ $1="";print} \
 						{print}'
 		}
 	;;
 	sshafs*) # sshafs://user@host/afsvolume
+		method=sshafs
 		host=$(echo "$f" | sed 's,sshafs://.*@\([^/]*\)/.*$,\1,')
 		authkey=$bkd/${host}_sshkey
 		authuser=$(echo "$f" | sed 's,sshafs://\(.*\)@.*$,\1,')
@@ -292,7 +392,7 @@ do
 				cmd="$cmd -time \"$(date -r $(stat -f%c "$nfil") +"%m/%d/%Y %H:%M")\" "
 			fi
 			cmd="$cmd -verbose -localauth"
-			echo "$cmd" > /dev/stderr
+			log "$cmd" > /dev/stderr
 			$cmd
 		}
 		listmethod() {
@@ -357,13 +457,14 @@ do
 
 	outfile="$fn.$thisl"
 	start=$(date +%s)
-	echo "$f"
-	echo "Date of this level $thisl: $(date -r $start)"
+	log "dumping $f via $method"
+	_log "$(date -r $start +"$datefmt")" "Start of this level $thisl"
 	case "$thisl" in
 	0)
 	;;
 	[1-9]*)
-		echo "Date of last level $lastl: $(date -r $(stat -f%c "$nfil"))"
+		_log "$(date -r $(stat -f%c "$nfil") +"$datefmt")" \
+			"Start of last level $lastl"
 	;;
 	esac
 	tmpfile="$(mktemp "$datadir/$host/.$outfile.XXXXXXXXXXX")"
@@ -390,22 +491,36 @@ do
 	done
 	stop=$(date +%s)
 
-	if [ "$( tail "$outfile.stderr" | egrep "Connection reset by peer|Connection timed out" )" ]
+	if [ -f "$output.stderr" ]; then
+		echo "$outputstart"
+		tail -3 "$output.stderr"
+		echo "$outputstop"
+	if [ "$( tail "$outfile.stderr" | egrep "Connection reset by peer|Connection timed out|denied|failed|Command not found" )" ]
 	then
 		echo "Backup failed for $f -> $outfile"
 		echo "Remote peer aborted early, removing backup"
 		[ -f "$outfile.stderr" ] && cat "$outfile.stderr"
 		rm "${outfile}"*
 	fi
+	else
+		if [ -f "$tmpfile.stderr" ]; then
+			echo "$outputstart"
+			tail -3 "$tmpfile.stderr"
+			echo "$outputstop"
+		fi
+	fi
 
 	if [ -f "$outfile" ]; then
 		goodsummary
 	else
 		echo "Backup failed for $f -> $outfile"
-		[ -f "$tmpfile.stderr" ] && cat "$tmpfile.stderr"
+		if [ -f "$tmpfile.stderr" ]; then
+			echo "$outputstart"
+			cat "$tmpfile.stderr"
+			echo "$outputstop"
+		fi
 		rm "$tmpfile".*
 	fi
-	echo
 done
 
 # remotemirror should be of the form
@@ -435,3 +550,7 @@ if [ "$remotemirror" ]; then
 		--exclude=".*" $datadir/. $host:$dir
 	rm $tmpfile
 fi
+globalend=$(date +%s)
+_log "$(date -r $globalend +"$datefmt")" "$(printf "Total Runtime %ds" \
+	$((globalend-globalstart)) )"
+_log "$(date -r $globalend +"$datefmt")" "backup[$$] of $@ set completed"
