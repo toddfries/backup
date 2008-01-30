@@ -51,7 +51,7 @@ if ! [ "$2" ]; then
 fi
 cd $bkd
 echo "Press <enter> when prompted for a passphrase.."
-ssh-keygen -t rsa -b 4096 -f ${2}_sshkey
+ssh-keygen -t rsa -b 4096 -f ${2}_sshkey -q -N ''
 echo
 echo "On the remote system, start uudecode in ~_backup/.ssh.."
 echo "and cut-n-paste the following"
