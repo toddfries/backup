@@ -74,9 +74,18 @@ else
 	exit 5
 fi
 
+#
+# vars not overrideable
+#
+
+totsize=0
+totucsize=0
+
 goodsummary() {
 	size=$(echo $(stat -f%z "$outfile")+0 | bc)
 	ucsize=$( echo $($aprog -d < "$outfile" | wc -c)+0 | bc)
+	totsize="$( echo $size + $totsize  | bc)"
+	totucsize="$( echo $ucsize + $totucsize | bc )"
 	unit=B
 	if [ size -gt 1000 -a ucsize -gt 1000 ]; then
 		size="$(echo "scale=5;$size/1024"|bc)"
@@ -97,7 +106,7 @@ goodsummary() {
 	ratio=$(echo "scale=2;100-$comp"|bc)
 	summdate="$(date -r $stop +"$datefmt")"
 	_log "$summdate" "Stop  of this level $thisl"
-	_log "$summdate" "$host time $((stop-start))s"
+	_log "$summdate" "$f time $((stop-start))s"
 	_log "$summdate" "$(printf "uncomp. %.2f$unit vs comp. %.2f$unit" $ucsize $size)"
 	_log "$summdate" "$(printf "uncomp. %.2f$unit/s vs comp. %.2f$unit/s" \
 	    $(echo "scale=2;$ucsize/($stop-$start)"|bc) \
@@ -527,7 +536,7 @@ done
 #  mirror://user@host/subdir
 if [ "$remotemirror" ]; then
 	if [ "$(pgrep -u _backup rsync)" ]; then
-		echo rsync already running
+		log rsync already running
 		exit 0
 	fi
 	user=$(echo $remotemirror|sed 's,mirror://\([^@]*\)@[^/]*/.*$,\1,')
@@ -546,11 +555,16 @@ if [ "$remotemirror" ]; then
 		echo "\"\$@\""
 	} > $tmpfile
 	chmod 755 $tmpfile
-	/usr/local/bin/rsync -rtqz --partial --inplace --bwlimit=120 -e $tmpfile \
+	[ "$mirrorbw" ] && bwlimit="--bwlimit=$mirrorbw"
+	log "Mirroring backups to $host:$dir"
+	/usr/local/bin/rsync -rtqz --partial --inplace $bwlimit -e $tmpfile \
 		--exclude=".*" $datadir/. $host:$dir
 	rm $tmpfile
 fi
 globalend=$(date +%s)
-_log "$(date -r $globalend +"$datefmt")" "$(printf "Total Runtime %ds" \
-	$((globalend-globalstart)) )"
+runtime=$((globalend-globalstart))
+_log "$(date -r $globalend +"$datefmt")" "$(printf "Total: runtime %ds" \
+	$runtime )"
+_log "$(date -r $globalend +"$datefmt")" "Total: comp. $totsize vs uncomp. $totucsize"
+_log "$(date -r $globalend +"$datefmt")" "Total: $(echo "scale=2;$totsize/$runtime"|bc)B/s vs $(echo "scale=2;$totucsize/$runtime"|bc)B/s"
 _log "$(date -r $globalend +"$datefmt")" "backup[$$] of $@ set completed"
