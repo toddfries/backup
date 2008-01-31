@@ -30,6 +30,10 @@ x backup samba shares accessable only via smbclient on a remote system
   - almost makes some sense to have levels somewhat automatic, so one
     does not end up skipping level 1's for example because the night before's
     backup took too long
+- backup-addhost / backup
+ - implement 'df' output on the host to list partitions to potentially backup
+ - permit copying the authorized_keys file into place and setting up the
+   remote backup script
 
 x show the time the backup is relative to, if not level 0
 x permit using '-h 0' flag of dump
