@@ -1,3 +1,7 @@
+- sanity checking of syntax, i.e. invalid typical things:
+  sshdump://host/ (no user present)
+  dump://user@host/ (user present)
+
 - metadata
   - keep track of files that exist each backup
     - consider merits of storing as a list vs differential list?
@@ -63,3 +67,6 @@ As spoken to a big chemical client:
  - integrate openssl for passphrase encrypted backups
  - implement archiving to tape
 
+
+- each system backed up can fit in one column, the stats output
+  eventually shrink the output to columns

@@ -50,12 +50,15 @@ if ! [ "$2" ]; then
 	exit 6
 fi
 cd $bkd
-echo "Press <enter> when prompted for a passphrase.."
 ssh-keygen -t rsa -b 4096 -f ${2}_sshkey -q -N ''
 echo
-echo "On the remote system, start uudecode in ~_backup/.ssh.."
-echo "and cut-n-paste the following"
-echo "no-pty,from=\"1.2.3.4\",no-port-forwarding,no-X11-forwarding,no-agent-forwarding $(cat ${2}_sshkey.pub)" | uuencode authorized_keys
+echo "On the remote system, cut and paste the following:"
+echo ",-----"
+echo "cd ~backupuser;mkdir .ssh;cd .ssh"
+echo "uudecode"
+echo "no-pty,from=\"1.2.3.4\",no-port-forwarding,no-X11-forwarding,no-agent-forwarding $(cat ${2}_sshkey.pub)" | gzip -9 | uuencode authorized_keys.gz
+echo "gzip -d authorized_keys.gz"
+echo "`-----"
 mkdir $datadir/$2
 chown _backup._backup $datadir/$2 ${2}_sshkey
 echo "Example entry for $bkd/dumplist:"
