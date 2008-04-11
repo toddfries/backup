@@ -52,7 +52,7 @@ outputstart=",--------------------------------------------"
 outputstop="\`--------------------------------------------"
 datefmt="%m/%d/%Y %H:%M:%S %Z"
 successcookie="Success.$RANDOM"
-maxretry=30
+maxretry=3
 
 # backup directory
 bkd="/etc/backup/$1"
@@ -83,6 +83,11 @@ fi
 totsize=0
 totucsize=0
 
+bubble() {
+	echo "$outputstart"
+	cat
+	echo "$outputstop"
+}
 setunit() {
 	sone="$1"
 	stwo="$2"
@@ -117,12 +122,17 @@ setunit() {
 detailsrun=0
 savedetails() {
 	local s="$1" ucs="$2" fs="$3" time="$4"
-	local h m tmp
+	local h m tmp comp ratio
 	setunit $s $ucs
 	size=$sone
 	ucsize=$stwo
-	local comp=$(echo "scale=2;100*$size/$ucsize"|bc)
-	local ratio=$(echo "scale=2;100-$comp"|bc)
+	if [ s -eq 0 -a ucs -eq 0 ]; then
+		comp=0
+		ratio=0
+	else
+		comp=$(echo "scale=2;100*$size/$ucsize"|bc)
+		ratio=$(echo "scale=2;100-$comp"|bc)
+	fi
 	h=$((time/3600))
 	tmp=$((time - h*3600))
 	m=$((tmp/60))
@@ -137,13 +147,6 @@ savedetails() {
 
 details=""
 goodsummary() {
-	size=$(echo $(stat -f%z "$outfile")+0 | bc)
-	ucsize=$( echo $($aprog -d < "$outfile" | wc -c)+0 | bc)
-	totsize="$( echo $size + $totsize  | bc)"
-	totucsize="$( echo $ucsize + $totucsize | bc )"
-	summdate="$(date -r $stop +"$datefmt")"
-	_log "$summdate" "Stop  of this level $thisl"
-	savedetails $size $ucsize $f $((stop-start))
 	return 0
 }
 _log() {
@@ -288,9 +291,7 @@ do
 						{print}'
 			if [ -f "${outfile}.stderr" ]; then
 				if egrep "^pax: " "${outfile}.stderr" > /dev/null 2>&1; then
-					log "$outputstart"  > /dev/stderr
-					egrep "^pax: " "${outfile}.stderr"                    > /dev/stderr
-					log "$outputstop" > /dev/stderr
+					egrep "^pax: " "${outfile}.stderr" | bubble > /dev/stderr
 				fi
 			fi
 		}
@@ -326,9 +327,7 @@ do
 						{print}'
 			if [ -f "${outfile}.stderr" ]; then
 				if egrep "^pax: " "${outfile}.stderr" > /dev/null 2>&1; then
-					log "$outputstart"  > /dev/stderr
-					egrep "^pax: " "${outfile}.stderr"                    > /dev/stderr
-					log "$outputstop" > /dev/stderr
+					egrep "^pax: " "${outfile}.stderr"  | bubble > /dev/stderr
 				fi
 			fi
 		}
@@ -514,21 +513,25 @@ do
 	retrycount=0
 	#echo "$tmpfile"
 	#set -x
-	while [ retrycount -lt maxretry ]; do
+	while [ retrycount -le maxretry ]; do
+		fail=0
 		backupmethod 2> "$tmpfile.stderr" | \
 			$aprog -$aopt > "$tmpfile"
-		if tail -1 "$tmpfile.stderr" | egrep "$successcookie$" > /dev/null 2>&1; then
+		if [ "$(tail -1 "$tmpfile.stderr" | egrep "$successcookie$" 2> /dev/null)" ] && \
+			! [ "$(tail "$tmpfile.stderr" | egrep -i "Connection reset by peer|Connection timed out|denied|failed|Command not found|Killed " 2> /dev/null)" ]; then
 			mv "$tmpfile" "$outfile" && \
 			mv "$tmpfile.timestamp" "$outfile.timestamp" && \
 			mv "$tmpfile.stderr" "$outfile.stderr" && \
 			listmethod 2> /dev/null | $aprog -$aopt > "$outfile.filelist"
 		else
-			echo "General failure for $f, Retrying... $retrycount of $maxretry"
+			fail=1
 			let retrycount=retrycount+1
+			[ retrycount -le maxretry ] && log "$f failed, retrying... $retrycount of $maxretry"
 			continue
 		fi
 		if [ "$( tail "$outfile.stderr" | grep "no address associated" )" ]
 		then
+			fail=1
 			echo "DNS failure for $f, Retrying..."
 			let retrycount=retrycount+1
 			continue
@@ -537,42 +540,40 @@ do
 	done
 	stop=$(date +%s)
 
-	if [ -f "$outfile.stderr" ]; then
-		echo "$outputstart"
-		tail -3 "$outfile.stderr"
-		echo "$outputstop"
-		if [ "$( tail "$outfile.stderr" | egrep -i "Connection reset by peer|Connection timed out|denied|failed|Command not found|Killed " )" ]; then
-			echo "Backup failed for $f -> $outfile"
-			echo "Remote peer aborted early, removing backup"
-			[ -f "$outfile.stderr" ] && cat "$outfile.stderr"
-			rm "${outfile}"*
-		fi
+	if [ -f "$outfile.stderr" -a fail -eq 0 ]; then
+		tail -4 "$outfile.stderr" | head -3 | bubble
 	else
-		if [ -f "${tmpfile}.stderr" ]; then
-			echo "$outputstart"
-			tail -3 "$tmpfile.stderr"
-			echo "$outputstop"
-		else
-			echo "$outputstart"
+		if ! [ -f "${tmpfile}.stderr" ]; then
+		    {
 			echo "Some unknown error occurred, the output file does not exist!"
 			echo "Checked:"
 			echo "${tmpfile}.stderr"
 			echo "${outfile}.stderr"
 			ls -l ${outfile}.stderr ${tmpfile}.stderr 2>&1
-			echo "$outputstop"
+		    } | bubble
 		fi
 	fi
 
-	if [ -f "$outfile" ]; then
-		goodsummary
+	if [ -f "$outfile" -a fail -eq 0 ]; then
+		size=$(echo $(stat -f%z "$outfile")+0 | bc)
+		ucsize=$( echo $($aprog -d < "$outfile" | wc -c)+0 | bc)
+		totsize="$( echo $size + $totsize  | bc)"
+		totucsize="$( echo $ucsize + $totucsize | bc )"
+		summdate="$(date -r $stop +"$datefmt")"
+		_log "$summdate" "Stop  of this level $thisl"
+		savedetails $size $ucsize $f $((stop-start))
 	else
-		echo "Backup failed for $f -> $outfile"
+		log "Fail  of this level $thisl"
+		{
 		if [ -f "$tmpfile.stderr" ]; then
-			echo "$outputstart"
+			echo "   Attempted to write to:"
+			echo "$tmpfile"
+			echo "   Stderr:"
 			cat "$tmpfile.stderr"
-			echo "$outputstop"
 		fi
-		rm -f "$tmpfile".*
+		} | bubble
+		rm -f "$tmpfile"*
+		savedetails -0 -0 $f $((stop-start))
 	fi
 done
 
@@ -613,9 +614,9 @@ runtime=$((globalend-globalstart))
 
 savedetails $totsize $totucsize Total $runtime
 #cho "1148.64MB  28.71MB  525.62MB  13.14MB  45.76  54.24  0:05:00 Total"
-echo "$outputstart"
+{
 echo "  Uncompressed        Compressed       Percent        Time     FileSystem"
 echo "data       speed/s  data      speed/s  %      %     HH:MM:SS hostname:/subdir"
 echo "$details"
-echo "$outputstop"
+} | bubble
 _log "$(date -r $globalend +"$datefmt")" "pid $$: backup of $@ set completed"
