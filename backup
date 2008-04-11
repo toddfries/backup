@@ -81,37 +81,60 @@ fi
 totsize=0
 totucsize=0
 
+setunit() {
+	s1="$1"
+	s2="$2"
+
+	unit=B
+	if [ s1 -gt 1000 -a s2 -gt 1000 ]; then
+		s1="$(echo "scale=5;$s1/1024"|bc)"
+		s2="$(echo "scale=5;$s2/1024"|bc)"
+		unit=KB
+	fi
+	if [ ${s1%.*} -gt 1000 -a ${s2%.*} -gt 1000 -a $unit = "KB" ]; then
+		s1="$(echo "scale=5;$s1/1024"|bc)"
+		s2="$(echo "scale=5;$s2/1024"|bc)"
+		unit=MB
+	fi
+	if [ ${s1%.*} -gt 1000 -a ${s2%.*} -gt 1000 -a $unit = "MB" ]; then
+		s1="$(echo "scale=5;$s1/1024"|bc)"
+		s2="$(echo "scale=5;$s2/1024"|bc)"
+		unit=GB
+	fi
+}
+detailsrun=0
+savedetails() {
+	local size="$1" ucsize="$2" fs="$3" time="$4"
+	setunit $size $ucsize
+	size=$s1
+	ucsize=$s2
+	local comp=$(echo "scale=2;100*$size/$ucsize"|bc)
+	local ratio=$(echo "scale=2;100-$comp"|bc)
+	local h m s tmp
+	h=$((time/3600))
+	tmp=$((time - h*3600))
+	m=$((tmp/60))
+	s=$((tmp - m*60))
+	[ detailsrun -eq 1 ] && details="$details\n"
+	details="$details$(printf "%6.2f$unit %6.2f$unit/s" $ucsize $(echo "scale=2;$ucsize/($stop-$start)"|bc) ) "
+	details="$details$(printf "%6.2f$unit %6.2f$unit/s" $size   $(echo "scale=2;$size/($stop-$start)"|bc) ) "
+	details="$details$(printf "%6.2f %6.2f " $comp $ratio)"
+	details="$details$(printf "%2d:%02d:%02d" $h $m $s) $fs"
+	detailsrun=1
+}
+
+details=""
 goodsummary() {
 	size=$(echo $(stat -f%z "$outfile")+0 | bc)
 	ucsize=$( echo $($aprog -d < "$outfile" | wc -c)+0 | bc)
 	totsize="$( echo $size + $totsize  | bc)"
 	totucsize="$( echo $ucsize + $totucsize | bc )"
-	unit=B
-	if [ size -gt 1000 -a ucsize -gt 1000 ]; then
-		size="$(echo "scale=5;$size/1024"|bc)"
-		ucsize="$(echo "scale=5;$ucsize/1024"|bc)"
-		unit=KB
-	fi
-	if [ ${size%.*} -gt 1000 -a ${ucsize%.*} -gt 1000 -a $unit = "KB" ]; then
-		size="$(echo "scale=5;$size/1024"|bc)"
-		ucsize="$(echo "scale=5;$ucsize/1024"|bc)"
-		unit=MB
-	fi
-	if [ ${size%.*} -gt 1000 -a ${ucsize%.*} -gt 1000 -a $unit = "MB" ]; then
-		size="$(echo "scale=5;$size/1024"|bc)"
-		ucsize="$(echo "scale=5;$ucsize/1024"|bc)"
-		unit=GB
-	fi
-	comp=$(echo "scale=2;100*$size/$ucsize"|bc)
-	ratio=$(echo "scale=2;100-$comp"|bc)
+	setunit $size $ucsize
+	size=$s1
+	ucsize=$s2
 	summdate="$(date -r $stop +"$datefmt")"
 	_log "$summdate" "Stop  of this level $thisl"
-	_log "$summdate" "$f time $((stop-start))s"
-	_log "$summdate" "$(printf "uncomp. %.2f$unit vs comp. %.2f$unit" $ucsize $size)"
-	_log "$summdate" "$(printf "uncomp. %.2f$unit/s vs comp. %.2f$unit/s" \
-	    $(echo "scale=2;$ucsize/($stop-$start)"|bc) \
-	    $(echo "scale=2;$size/($stop-$start)"|bc) )"
-	_log "$summdate" "comp. ${comp}%, ratio $ratio%"
+	savedetails $totsize $totucsize $f $((stop-start))
 	return 0
 }
 _log() {
@@ -477,7 +500,7 @@ do
 	;;
 	esac
 	tmpfile="$(mktemp "$datadir/$host/.$outfile.XXXXXXXXXXX")"
-	outfile="$host/$outfile"
+	outfile="$datadir/$host/$outfile"
 	touch "$tmpfile.timestamp"
 	retrycount=0
 	#echo "$tmpfile"
@@ -500,25 +523,28 @@ do
 	done
 	stop=$(date +%s)
 
-	if [ -f "$output.stderr" ]; then
+	if [ -f "$outfile.stderr" ]; then
 		echo "$outputstart"
-		tail -3 "$output.stderr"
+		tail -3 "$outfile.stderr"
 		echo "$outputstop"
-		if [ "$( tail "$outfile.stderr" | egrep -i "Connection reset by peer|Connection timed out|denied|failed|Command not found|Killed " )" ]
-		then
+		if [ "$( tail "$outfile.stderr" | egrep -i "Connection reset by peer|Connection timed out|denied|failed|Command not found|Killed " )" ]; then
 			echo "Backup failed for $f -> $outfile"
 			echo "Remote peer aborted early, removing backup"
 			[ -f "$outfile.stderr" ] && cat "$outfile.stderr"
 			rm "${outfile}"*
 		fi
 	else
-		if [ -f "$tmpfile.stderr" ]; then
+		if [ -f "${tmpfile}.stderr" ]; then
 			echo "$outputstart"
 			tail -3 "$tmpfile.stderr"
 			echo "$outputstop"
 		else
 			echo "$outputstart"
 			echo "Some unknown error occurred, the output file does not exist!"
+			echo "Checked:"
+			echo "${tmpfile}.stderr"
+			echo "${outfile}.stderr"
+			ls -l ${outfile}.stderr ${tmpfile}.stderr 2>&1
 			echo "$outputstop"
 		fi
 	fi
@@ -570,8 +596,12 @@ if [ "$remotemirror" ]; then
 fi
 globalend=$(date +%s)
 runtime=$((globalend-globalstart))
-_log "$(date -r $globalend +"$datefmt")" "$(printf "Total: runtime %ds" \
-	$runtime )"
-_log "$(date -r $globalend +"$datefmt")" "Total: uncomp. $totucsize vs comp. $totsize"
-_log "$(date -r $globalend +"$datefmt")" "Total: $(echo "scale=2;$totucsize/$runtime"|bc)B/s vs $(echo "scale=2;$totsize/$runtime"|bc)B/s"
+
+savedetails $totsize $totucsize Total $runtime
+#cho "760.00KB  63.33KB/s 384.63KB  32.05KB/s  50.60  49.40  0:00:12 Total"
+echo "$outputstart"
+echo "  Uncompressed        Compressed         Percent     Time     FileSystem"
+echo "data      speed     data      speed      %      %     HH:MM:SS hostname:/subdir"
+echo "$details"
+echo "$outputstop"
 _log "$(date -r $globalend +"$datefmt")" "pid $$: backup of $@ set completed"
