@@ -51,6 +51,8 @@ set -A levels 6 5 4 3 2 1 7 6
 outputstart=",--------------------------------------------"
 outputstop="\`--------------------------------------------"
 datefmt="%m/%d/%Y %H:%M:%S %Z"
+successcookie="Success.$RANDOM"
+maxretry=30
 
 # backup directory
 bkd="/etc/backup/$1"
@@ -82,42 +84,52 @@ totsize=0
 totucsize=0
 
 setunit() {
-	s1="$1"
-	s2="$2"
+	sone="$1"
+	stwo="$2"
 
-	unit=B
-	if [ s1 -gt 1000 -a s2 -gt 1000 ]; then
-		s1="$(echo "scale=5;$s1/1024"|bc)"
-		s2="$(echo "scale=5;$s2/1024"|bc)"
+	unit="B "
+	if [ sone -gt 1000 -a stwo -gt 1000 ]; then
+		sone="$(echo "scale=5;$sone/1024"|bc)"
+		stwo="$(echo "scale=5;$stwo/1024"|bc)"
 		unit=KB
 	fi
-	if [ ${s1%.*} -gt 1000 -a ${s2%.*} -gt 1000 -a $unit = "KB" ]; then
-		s1="$(echo "scale=5;$s1/1024"|bc)"
-		s2="$(echo "scale=5;$s2/1024"|bc)"
+	if [ ${sone%.*} -gt 1000 -a ${stwo%.*} -gt 1000 -a "$unit" = "KB" ]; then
+		sone="$(echo "scale=5;$sone/1024"|bc)"
+		stwo="$(echo "scale=5;$stwo/1024"|bc)"
 		unit=MB
 	fi
-	if [ ${s1%.*} -gt 1000 -a ${s2%.*} -gt 1000 -a $unit = "MB" ]; then
-		s1="$(echo "scale=5;$s1/1024"|bc)"
-		s2="$(echo "scale=5;$s2/1024"|bc)"
+	if [ ${sone%.*} -gt 1000 -a ${stwo%.*} -gt 1000 -a "$unit" = "MB" ]; then
+		sone="$(echo "scale=5;$sone/1024"|bc)"
+		stwo="$(echo "scale=5;$stwo/1024"|bc)"
 		unit=GB
+	fi
+	if [ ${sone%.*} -gt 1000 -a ${stwo%.*} -gt 1000 -a "$unit" = "GB" ]; then
+		sone="$(echo "scale=5;$sone/1024"|bc)"
+		stwo="$(echo "scale=5;$stwo/1024"|bc)"
+		unit=TB
+	fi
+	if [ ${sone%.*} -gt 1000 -a ${stwo%.*} -gt 1000 -a "$unit" = "TB" ]; then
+		sone="$(echo "scale=5;$sone/1024"|bc)"
+		stwo="$(echo "scale=5;$stwo/1024"|bc)"
+		unit=PB
 	fi
 }
 detailsrun=0
 savedetails() {
-	local size="$1" ucsize="$2" fs="$3" time="$4"
-	setunit $size $ucsize
-	size=$s1
-	ucsize=$s2
+	local s="$1" ucs="$2" fs="$3" time="$4"
+	local h m tmp
+	setunit $s $ucs
+	size=$sone
+	ucsize=$stwo
 	local comp=$(echo "scale=2;100*$size/$ucsize"|bc)
 	local ratio=$(echo "scale=2;100-$comp"|bc)
-	local h m s tmp
 	h=$((time/3600))
 	tmp=$((time - h*3600))
 	m=$((tmp/60))
 	s=$((tmp - m*60))
 	[ detailsrun -eq 1 ] && details="$details\n"
-	details="$details$(printf "%6.2f$unit %6.2f$unit/s" $ucsize $(echo "scale=2;$ucsize/($stop-$start)"|bc) ) "
-	details="$details$(printf "%6.2f$unit %6.2f$unit/s" $size   $(echo "scale=2;$size/($stop-$start)"|bc) ) "
+	details="$details$(printf "%7.2f$unit %6.2f$unit" $ucsize $(echo "scale=2;$ucsize/($stop-$start)"|bc) ) "
+	details="$details$(printf "%7.2f$unit %6.2f$unit" $size   $(echo "scale=2;$size/($stop-$start)"|bc) ) "
 	details="$details$(printf "%6.2f %6.2f " $comp $ratio)"
 	details="$details$(printf "%2d:%02d:%02d" $h $m $s) $fs"
 	detailsrun=1
@@ -129,12 +141,9 @@ goodsummary() {
 	ucsize=$( echo $($aprog -d < "$outfile" | wc -c)+0 | bc)
 	totsize="$( echo $size + $totsize  | bc)"
 	totucsize="$( echo $ucsize + $totucsize | bc )"
-	setunit $size $ucsize
-	size=$s1
-	ucsize=$s2
 	summdate="$(date -r $stop +"$datefmt")"
 	_log "$summdate" "Stop  of this level $thisl"
-	savedetails $totsize $totucsize $f $((stop-start))
+	savedetails $size $ucsize $f $((stop-start))
 	return 0
 }
 _log() {
@@ -209,7 +218,7 @@ do
 				echo EOF
 				printf "$cmd" smbauth $nopt $smbfile
 				#echo "rm -rf \$d"
-			} | $scmd sh
+			} | $scmd sh && echo $successcookie > /dev/stderr
 		}
 		listmethod() {
 			tar tvzf "$outfile" | \
@@ -234,10 +243,10 @@ do
 			echo "smbclient -d2 -E -A$auth \"//$host/$smbshare\" -D \"$smbsubdir\" -c 'tarmode full' -Tc$nopt \"$nfil\" -" > /dev/stderr
 			if [ "$nfil" ]; then
 				$smbclient -d2 -E -A$auth "//$host/$smbshare" -D "$smbsubdir" \
-					-c 'tarmode full' -Tc$nopt "$nfil" - 
+					-c 'tarmode full' -Tc$nopt "$nfil" - && echo $successcookie > /dev/stderr
 			else
 				$smbclient -d2 -E -A$auth "//$host/$smbshare" -D "$smbsubdir" \
-					-c 'tarmode full' -Tc  - 
+					-c 'tarmode full' -Tc  - && echo $successcookie > /dev/stderr
 			fi
 		}
 		listmethod() {
@@ -264,11 +273,11 @@ do
 			log "$cmd $file" > /dev/stderr
 			#set -x
 			if [ -d $file ]; then
-				( cd $file; $cmd )
+				( cd $file; $cmd && echo $successcookie > /dev/stderr )
 			else
 				bd=$(dirname $file)
 				if [ -d $bd ]; then
-					( cd $bd; $cmd $(basename $file) )
+					( cd $bd; $cmd $(basename $file) && echo $successcookie > /dev/stderr )
 				fi
 			fi
 		}
@@ -308,7 +317,7 @@ do
 			fi
 			cmd="$cmd .\""
 			log "$cmd $file" > /dev/stderr
-			$cmd
+			$cmd && echo $successcookie > /dev/stderr
 		}
 		listmethod() {
 			gzip -d < "$outfile" | tar -tvf - | \
@@ -340,7 +349,7 @@ do
 			cmd="$cmd -0a -f - $file"
 			log "$cmd" > /dev/stderr
 			#set -x
-			$cmd
+			$cmd && echo $successcookie > /dev/stderr
 		}
 		listmethod() {
 			gzip -d < "$outfile" | restore -tyvf - | \
@@ -366,7 +375,7 @@ do
 			cmd="$cmd /usr/sbin/backup -${thisl}uf - $file "
 			log "$cmd" > /dev/stderr
 			#set -x
-			$cmd
+			$cmd && echo $successcookie > /dev/stderr
 		}
 		listmethod() {
 			gzip -d < "$outfile" | restore -tvyf - | \
@@ -396,7 +405,7 @@ do
 			cmd="$cmd -0a -f - $file"
 			log "$cmd" > /dev/stderr
 			#set -x
-			$cmd
+			$cmd && echo $successcookie > /dev/stderr
 		}
 		listmethod() {
 			gzip -d < "$outfile" | restore -tvyf - | \
@@ -425,7 +434,7 @@ do
 			fi
 			cmd="$cmd -verbose -localauth"
 			log "$cmd" > /dev/stderr
-			$cmd
+			$cmd && echo "$successcookie" > /dev/stderr
 		}
 		listmethod() {
 			echo "No listing for sshafs implemented yet"
@@ -505,21 +514,26 @@ do
 	retrycount=0
 	#echo "$tmpfile"
 	#set -x
-	while [ retrycount -lt 30 ]; do
-	backupmethod 2> "$tmpfile.stderr" | \
-		$aprog -$aopt > "$tmpfile" && \
-		mv "$tmpfile" "$outfile" && \
-		mv "$tmpfile.timestamp" "$outfile.timestamp" && \
-		mv "$tmpfile.stderr" "$outfile.stderr" && \
-		listmethod 2> /dev/null | $aprog -$aopt > "$outfile.filelist"
-	if [ "$( tail "$outfile.stderr" | grep "no address associated" )" ]
-	then
-		echo "DNS failure for $f"
-		echo "Retrying..."
-		let retrycount=retrycount+1
-		continue
-	fi
-	break
+	while [ retrycount -lt maxretry ]; do
+		backupmethod 2> "$tmpfile.stderr" | \
+			$aprog -$aopt > "$tmpfile"
+		if tail -1 "$tmpfile.stderr" | egrep "$successcookie$" > /dev/null 2>&1; then
+			mv "$tmpfile" "$outfile" && \
+			mv "$tmpfile.timestamp" "$outfile.timestamp" && \
+			mv "$tmpfile.stderr" "$outfile.stderr" && \
+			listmethod 2> /dev/null | $aprog -$aopt > "$outfile.filelist"
+		else
+			echo "General failure for $f, Retrying... $retrycount of $maxretry"
+			let retrycount=retrycount+1
+			continue
+		fi
+		if [ "$( tail "$outfile.stderr" | grep "no address associated" )" ]
+		then
+			echo "DNS failure for $f, Retrying..."
+			let retrycount=retrycount+1
+			continue
+		fi
+		break
 	done
 	stop=$(date +%s)
 
@@ -598,10 +612,10 @@ globalend=$(date +%s)
 runtime=$((globalend-globalstart))
 
 savedetails $totsize $totucsize Total $runtime
-#cho "760.00KB  63.33KB/s 384.63KB  32.05KB/s  50.60  49.40  0:00:12 Total"
+#cho "1148.64MB  28.71MB  525.62MB  13.14MB  45.76  54.24  0:05:00 Total"
 echo "$outputstart"
-echo "  Uncompressed        Compressed         Percent     Time     FileSystem"
-echo "data      speed     data      speed      %      %     HH:MM:SS hostname:/subdir"
+echo "  Uncompressed        Compressed       Percent        Time     FileSystem"
+echo "data       speed/s  data      speed/s  %      %     HH:MM:SS hostname:/subdir"
 echo "$details"
 echo "$outputstop"
 _log "$(date -r $globalend +"$datefmt")" "pid $$: backup of $@ set completed"
