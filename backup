@@ -516,6 +516,10 @@ do
 			echo "$outputstart"
 			tail -3 "$tmpfile.stderr"
 			echo "$outputstop"
+		else
+			echo "$outputstart"
+			echo "Some unknown error occurred, the output file does not exist!"
+			echo "$outputstop"
 		fi
 	fi
 
@@ -528,7 +532,7 @@ do
 			cat "$tmpfile.stderr"
 			echo "$outputstop"
 		fi
-		rm "$tmpfile".*
+		rm -f "$tmpfile".*
 	fi
 done
 
