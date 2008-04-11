@@ -504,13 +504,13 @@ do
 		echo "$outputstart"
 		tail -3 "$output.stderr"
 		echo "$outputstop"
-	if [ "$( tail "$outfile.stderr" | egrep "Connection reset by peer|Connection timed out|denied|failed|Command not found|Killed |killed " )" ]
-	then
-		echo "Backup failed for $f -> $outfile"
-		echo "Remote peer aborted early, removing backup"
-		[ -f "$outfile.stderr" ] && cat "$outfile.stderr"
-		rm "${outfile}"*
-	fi
+		if [ "$( tail "$outfile.stderr" | egrep -i "Connection reset by peer|Connection timed out|denied|failed|Command not found|Killed " )" ]
+		then
+			echo "Backup failed for $f -> $outfile"
+			echo "Remote peer aborted early, removing backup"
+			[ -f "$outfile.stderr" ] && cat "$outfile.stderr"
+			rm "${outfile}"*
+		fi
 	else
 		if [ -f "$tmpfile.stderr" ]; then
 			echo "$outputstart"
