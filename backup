@@ -91,38 +91,32 @@ bubble() {
 setunit() {
 	#set -x
 	sone="$1"
-	stwo="$2"
 
-	unit="B "
-	local a="$sone" b="$stwo"
-	if [ ${#a} -gt 3 -a ${#b} -gt 3 ]; then
+	gunit="B "
+	local a="$sone"
+	if [ ${#a} -gt 3 ]; then
 		sone="$(echo "scale=5;$sone/1024"|bc)"
-		stwo="$(echo "scale=5;$stwo/1024"|bc)"
-		unit=KB
+		gunit=KB
 	fi
-	a="${sone%.*}" b="${stwo%.*}"
-	if [ ${#a} -gt 3 -a ${#b} -gt 3 -a "$unit" = "KB" ]; then
+	a="${sone%.*}"
+	if [ ${#a} -gt 3 -a "$gunit" = "KB" ]; then
 		sone="$(echo "scale=5;$sone/1024"|bc)"
-		stwo="$(echo "scale=5;$stwo/1024"|bc)"
-		unit=MB
+		gunit=MB
 	fi
-	a="${sone%.*}" b="${stwo%.*}"
-	if [ ${#a} -gt 3 -a ${#b} -gt 3 -a "$unit" = "MB" ]; then
+	a="${sone%.*}"
+	if [ ${#a} -gt 3 -a "$gunit" = "MB" ]; then
 		sone="$(echo "scale=5;$sone/1024"|bc)"
-		stwo="$(echo "scale=5;$stwo/1024"|bc)"
-		unit=GB
+		gunit=GB
 	fi
-	a="${sone%.*}" b="${stwo%.*}"
-	if [ ${#a} -gt 3 -a ${#b} -gt 3 -a "$unit" = "GB" ]; then
+	a="${sone%.*}"
+	if [ ${#a} -gt 3 -a "$gunit" = "GB" ]; then
 		sone="$(echo "scale=5;$sone/1024"|bc)"
-		stwo="$(echo "scale=5;$stwo/1024"|bc)"
-		unit=TB
+		gunit=TB
 	fi
-	a="${sone%.*}" b="${stwo%.*}"
-	if [ ${#a} -gt 3 -a ${#b} -gt 3 -a "$unit" = "TB" ]; then
+	a="${sone%.*}"
+	if [ ${#a} -gt 3 -a "$gunit" = "TB" ]; then
 		sone="$(echo "scale=5;$sone/1024"|bc)"
-		stwo="$(echo "scale=5;$stwo/1024"|bc)"
-		unit=PB
+		gunit=PB
 	fi
 }
 detailsrun=0
@@ -130,22 +124,25 @@ savedetails() {
 	#set -x
 	local s="$1" ucs="$2" fs="$3" time="$4"
 	local h m tmp comp ratio
-	setunit $s $ucs
-	size="$sone"
-	ucsize="$stwo"
 	if [ s -eq 0 -a ucs -eq 0 ]; then
 		comp=0
 		ratio=0
 	else
-		comp=$(echo "scale=2;100*$size/$ucsize"|bc)
+		comp=$(echo "scale=2;100*$s/$ucs"|bc)
 		ratio=$(echo "scale=2;100-$comp"|bc)
 	fi
+	setunit $ucs
+	ucunit="$gunit"
+	ucsize="$sone"
+	setunit $s
+	unit="$gunit"
+	size="$sone"
 	h=$((time/3600))
 	tmp=$((time - h*3600))
 	m=$((tmp/60))
 	s=$((tmp - m*60))
 	[ detailsrun -eq 1 ] && details="$details\n"
-	details="$details$(printf "%7.2f$unit %6.2f$unit" $ucsize $(echo "scale=2;$ucsize/$time"|bc) ) "
+	details="$details$(printf "%7.2f$ucunit %6.2f$ucunit" $ucsize $(echo "scale=2;$ucsize/$time"|bc) ) "
 	details="$details$(printf "%7.2f$unit %6.2f$unit" $size   $(echo "scale=2;$size/$time"|bc) ) "
 	details="$details$(printf "%6.2f %6.2f " $comp $ratio)"
 	details="$details$(printf "%2d:%02d:%02d" $h $m $s) $fs"
@@ -153,9 +150,6 @@ savedetails() {
 }
 
 details=""
-goodsummary() {
-	return 0
-}
 _log() {
 	printf "%s %s\n" "$1" "$2"
 }
