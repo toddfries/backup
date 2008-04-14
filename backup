@@ -503,6 +503,8 @@ do
 	aopt=9
 
 	outfile="$fn.$thisl"
+	tmpfile="$(mktemp "$datadir/$host/.$outfile.XXXXXXXXXXX")"
+	outfile="$datadir/$host/$outfile"
 	start=$(date +%s) 
 	# XXX make start= be stat of timestamp
 	touch "$tmpfile.timestamp"
@@ -516,8 +518,6 @@ do
 			"Start of last level $lastl"
 	;;
 	esac
-	tmpfile="$(mktemp "$datadir/$host/.$outfile.XXXXXXXXXXX")"
-	outfile="$datadir/$host/$outfile"
 	retrycount=0
 	#echo "$tmpfile"
 	#set -x
