@@ -89,31 +89,37 @@ bubble() {
 	echo "$outputstop"
 }
 setunit() {
+	#set -x
 	sone="$1"
 	stwo="$2"
 
 	unit="B "
-	if [ sone -gt 1000 -a stwo -gt 1000 ]; then
+	local a="$sone" b="$stwo"
+	if [ ${#a} -gt 3 -a ${#b} -gt 3 ]; then
 		sone="$(echo "scale=5;$sone/1024"|bc)"
 		stwo="$(echo "scale=5;$stwo/1024"|bc)"
 		unit=KB
 	fi
-	if [ ${sone%.*} -gt 1000 -a ${stwo%.*} -gt 1000 -a "$unit" = "KB" ]; then
+	a="${sone%.*}" b="${stwo%.*}"
+	if [ ${#a} -gt 3 -a ${#b} -gt 3 -a "$unit" = "KB" ]; then
 		sone="$(echo "scale=5;$sone/1024"|bc)"
 		stwo="$(echo "scale=5;$stwo/1024"|bc)"
 		unit=MB
 	fi
-	if [ ${sone%.*} -gt 1000 -a ${stwo%.*} -gt 1000 -a "$unit" = "MB" ]; then
+	a="${sone%.*}" b="${stwo%.*}"
+	if [ ${#a} -gt 3 -a ${#b} -gt 3 -a "$unit" = "MB" ]; then
 		sone="$(echo "scale=5;$sone/1024"|bc)"
 		stwo="$(echo "scale=5;$stwo/1024"|bc)"
 		unit=GB
 	fi
-	if [ ${sone%.*} -gt 1000 -a ${stwo%.*} -gt 1000 -a "$unit" = "GB" ]; then
+	a="${sone%.*}" b="${stwo%.*}"
+	if [ ${#a} -gt 3 -a ${#b} -gt 3 -a "$unit" = "GB" ]; then
 		sone="$(echo "scale=5;$sone/1024"|bc)"
 		stwo="$(echo "scale=5;$stwo/1024"|bc)"
 		unit=TB
 	fi
-	if [ ${sone%.*} -gt 1000 -a ${stwo%.*} -gt 1000 -a "$unit" = "TB" ]; then
+	a="${sone%.*}" b="${stwo%.*}"
+	if [ ${#a} -gt 3 -a ${#b} -gt 3 -a "$unit" = "TB" ]; then
 		sone="$(echo "scale=5;$sone/1024"|bc)"
 		stwo="$(echo "scale=5;$stwo/1024"|bc)"
 		unit=PB
@@ -121,11 +127,12 @@ setunit() {
 }
 detailsrun=0
 savedetails() {
+	#set -x
 	local s="$1" ucs="$2" fs="$3" time="$4"
 	local h m tmp comp ratio
 	setunit $s $ucs
-	size=$sone
-	ucsize=$stwo
+	size="$sone"
+	ucsize="$stwo"
 	if [ s -eq 0 -a ucs -eq 0 ]; then
 		comp=0
 		ratio=0
@@ -138,8 +145,8 @@ savedetails() {
 	m=$((tmp/60))
 	s=$((tmp - m*60))
 	[ detailsrun -eq 1 ] && details="$details\n"
-	details="$details$(printf "%7.2f$unit %6.2f$unit" $ucsize $(echo "scale=2;$ucsize/($stop-$start)"|bc) ) "
-	details="$details$(printf "%7.2f$unit %6.2f$unit" $size   $(echo "scale=2;$size/($stop-$start)"|bc) ) "
+	details="$details$(printf "%7.2f$unit %6.2f$unit" $ucsize $(echo "scale=2;$ucsize/$time"|bc) ) "
+	details="$details$(printf "%7.2f$unit %6.2f$unit" $size   $(echo "scale=2;$size/$time"|bc) ) "
 	details="$details$(printf "%6.2f %6.2f " $comp $ratio)"
 	details="$details$(printf "%2d:%02d:%02d" $h $m $s) $fs"
 	detailsrun=1
@@ -496,7 +503,9 @@ do
 	aopt=9
 
 	outfile="$fn.$thisl"
-	start=$(date +%s)
+	start=$(date +%s) 
+	# XXX make start= be stat of timestamp
+	touch "$tmpfile.timestamp"
 	log "dumping $f via $method"
 	_log "$(date -r $start +"$datefmt")" "Start of this level $thisl"
 	case "$thisl" in
@@ -509,7 +518,6 @@ do
 	esac
 	tmpfile="$(mktemp "$datadir/$host/.$outfile.XXXXXXXXXXX")"
 	outfile="$datadir/$host/$outfile"
-	touch "$tmpfile.timestamp"
 	retrycount=0
 	#echo "$tmpfile"
 	#set -x
@@ -563,15 +571,15 @@ do
 		_log "$summdate" "Stop  of this level $thisl"
 		savedetails $size $ucsize $f $((stop-start))
 	else
-		log "Fail  of this level $thisl"
-		{
 		if [ -f "$tmpfile.stderr" ]; then
+		    {
 			echo "   Attempted to write to:"
 			echo "$tmpfile"
 			echo "   Stderr:"
 			cat "$tmpfile.stderr"
+		    } | bubble
 		fi
-		} | bubble
+		log "Fail  of this level $thisl"
 		rm -f "$tmpfile"*
 		savedetails -0 -0 $f $((stop-start))
 	fi
@@ -610,9 +618,8 @@ if [ "$remotemirror" ]; then
 	fi
 fi
 globalend=$(date +%s)
-runtime=$((globalend-globalstart))
 
-savedetails $totsize $totucsize Total $runtime
+savedetails $totsize $totucsize Total $((globalend-globalstart))
 #cho "1148.64MB  28.71MB  525.62MB  13.14MB  45.76  54.24  0:05:00 Total"
 {
 echo "  Uncompressed        Compressed       Percent        Time     FileSystem"
