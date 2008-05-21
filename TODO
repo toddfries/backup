@@ -50,6 +50,8 @@ x permit using '-h 0' flag of dump
 - update sshsmb to match smb regarding smbshare/smbdir
 - write recover script to restore data
 
+- ability to backup databases (PostgreSQL, MySQL, etc)
+
 As spoken to a big chemical client:
  - the ability to set a parallel variable per host and per backup system,
    to backup multiple systems simultaneously; serially backing up systems
