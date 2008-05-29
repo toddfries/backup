@@ -4,13 +4,35 @@ setname=mycompany-mail
 mkdir -p /etc/backup/$setname
 cd /etc/backup/$setname
 cat <<EOF  > conf
+#
+# Directory under which 1 subdir per host will be created for
+# backup storage.  Size accordingly!
+#
 datadir=/backups
+
+#
+# Extra ssh arguments
+#
 #sshxtra="-o bindaddress=backup.example.com "
+
+#
+# Weekly schedule of backup levels
+#
 # set -A levels 6 5 4 3 2 1 7 6
+
+# Uncomment if you want a remote mirror, set it up as a normal client
+# with a writable subdir.
+#
+# remotemirror=mirror://user@remotehost/subdir
+#
 EOF
 /usr/local/sbin/backup-addhost $setname localhost
 echo dump://localhost/ > dumplist
 
 Per system (including the backup server which can be -s /sbin/nologin):
 
-useradd -d /home/.backup -g =uid -m -s /bin/sh -G operator _backup
+  useradd -d /home/.backup -g =uid -m -s /bin/sh -G operator _backup
+
+On the backup system, a crontab entry like below would be useful:
+
+  30 3 * * * su -m _backup -c "sh /usr/local/sbin/backup mycompany-mail"
