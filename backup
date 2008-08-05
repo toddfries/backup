@@ -20,6 +20,14 @@ if [ "$user" != "_backup" ]; then
 	exit 1
 fi
 
+if [ "$1" = "-r" ]; then
+	# rsync only run
+	shift
+	rsynconly=1
+else
+	rsynconly=0
+fi
+
 if ! [ "$1" ]; then
 	echo "Usage: $0 backupsetname"
 	exit 2
@@ -186,6 +194,7 @@ fi
 
 smbclient=/usr/local/bin/smbclient
 
+if [ rsynconly = 0 ]; then
 for f in $(sed 's/#.*$//;/^$/d' $bkd/dumplist)
 do
 	thisl=$l
@@ -578,6 +587,7 @@ do
 		savedetails -0 -0 $f $((stop-start))
 	fi
 done
+fi
 
 # remotemirror should be of the form
 #  mirror://user@host/subdir
