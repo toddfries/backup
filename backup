@@ -593,7 +593,13 @@ fi
 #  mirror://user@host/subdir
 if [ "$remotemirror" ]; then
 	if [ "$(pgrep -u _backup rsync)" ]; then
-		log not mirroring, rsync already running
+		log rsync already running, killing
+		pkill -u _backup rsync
+		sleep 3
+		pkill -9 -u _backup rsync
+	fi
+	if [ "$(pgrep -u _backup rsync)" ]; then
+		log not mirroring, rsync already running and not killable
 	else
 		user=$(echo $remotemirror|sed 's,mirror://\([^@]*\)@[^/]*/.*$,\1,')
 		host=$(echo $remotemirror|sed 's,mirror://[^@]*@\([^/]*\)/.*$,\1,')
