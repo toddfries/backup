@@ -201,7 +201,7 @@ rotate() {
 
 smbclient=/usr/local/bin/smbclient
 
-if [ rsynconly = 0 ]; then
+if [ rsynconly -eq 0 ]; then
 for f in $(sed 's/#.*$//;/^$/d' $bkd/dumplist)
 do
 	thisl=$l
@@ -285,7 +285,7 @@ do
 		f="$host:$file"
 		backupmethod() {
 			# would like -O but FreeBSD doesn't have it, bah
-			cmd="/bin/pax -Xwv "
+			cmd="pax -Xwv "
 			if [ "$nfil" ]; then
 				cmd="$cmd -T $(date -r $(stat -f%c "$nfil") +"%Y%m%d%H%M.%S") "
 			fi
@@ -329,7 +329,7 @@ do
 			cmd="$cmd -i $authkey "
 			cmd="$cmd $authuser@$host "
 			# would like -O but FreeBSD doesn't have it, bah
-			cmd="$cmd sh -c \"cd $file;/bin/pax -Xwv "
+			cmd="$cmd sh -c \"cd $file;pax -Xwv "
 			if [ "$nfil" ]; then
 				cmd="$cmd -T $(date -r $(stat -f%c "$nfil") +"%y%m%d%H%M.%S") "
 			fi
