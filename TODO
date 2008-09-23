@@ -1,3 +1,5 @@
+- afs
+  - permit specifying '*' for volume names, i.e. fdc.finance.*
 - sanity checking of syntax, i.e. invalid typical things:
   sshdump://host/ (no user present)
   dump://user@host/ (user present)
