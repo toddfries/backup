@@ -61,6 +61,7 @@ outputstop="\`--------------------------------------------"
 datefmt="%m/%d/%Y %H:%M:%S %Z"
 successcookie="Success.$RANDOM"
 maxretry=3
+maxhist=0
 
 # backup directory
 bkd="/etc/backup/$1"
@@ -173,24 +174,30 @@ l=${levels[$dayofweek]}
 
 m=$( date +%d )
 
-if false; then
-# do a full backup monthly and keep an older copy around
-case "$m" in
-01|1)
-        l=0
-        log "1st day of month -> level $l"
-        rotate() {
-                mv "$1" "$1".0
-        }
-;;
-*)
-        log "Weekday $d -> level $l"
-        rotate() {
-                :
-        }
-;;
-esac
-fi
+
+rotate() {
+	if [ maxhist -eq 0 ]; then
+		return
+	fi
+	local max=$maxhist
+	local down=0
+	while [ max -gt 0 ]; do
+		let down=max-1
+		if [ -f "$1".$down ]; then
+			mv "$1".$down "$1".$max
+			mv "$1.timestamp.$down" "$1.timestamp.$max"
+			mv "$1.stderr.$down" "$1.stderr.$max"
+			mv "$1.filelist.$down" "$1.filelist.$max"
+		fi
+		let max=down
+	done
+	if [ -f "$1" ]; then
+		mv $1           $1.0
+		mv $1.timestamp $1.timestamp.0
+		mv $1.stderr    $1.stderr.0
+		mv $1.filelist  $1.filelist.0
+	fi
+}
 
 smbclient=/usr/local/bin/smbclient
 
@@ -530,6 +537,7 @@ do
 			$aprog -$aopt > "$tmpfile"
 		if [ "$(tail -1 "$tmpfile.stderr" | egrep "$successcookie$" 2> /dev/null)" ] && \
 			! [ "$(tail "$tmpfile.stderr" | egrep -i "Connection reset by peer|Connection timed out|denied|failed|Command not found|Killed " 2> /dev/null)" ]; then
+			rotate "$outfile"
 			mv "$tmpfile" "$outfile" && \
 			mv "$tmpfile.timestamp" "$outfile.timestamp" && \
 			mv "$tmpfile.stderr" "$outfile.stderr" && \
