@@ -31,8 +31,14 @@ echo dump://localhost/ > dumplist
 
 Per system (including the backup server which can be -s /sbin/nologin):
 
+ OpenBSD:
   useradd -d /home/.backup -g =uid -m -s /bin/sh -G operator _backup
+ Linux:
+  groupadd _backup
+  useradd -d /home/.backup -g _backup -m -s /bin/sh -G operator _backup
+
 
 On the backup system, a crontab entry like below would be useful:
 
+ *BSD:
   30 3 * * * su -m _backup -c "sh /usr/local/sbin/backup mycompany-mail"
