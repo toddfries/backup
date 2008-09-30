@@ -450,7 +450,7 @@ do
 			if [ "$nfil" ]; then
 				cmd="$cmd -time \"$(date -r $(stat -f%c "$nfil") +"%m/%d/%Y %H:%M")\" "
 			fi
-			cmd="$cmd -verbose -localauth"
+			cmd="$cmd -localauth"
 			log "$cmd" > /dev/stderr
 			$cmd && echo "$successcookie" > /dev/stderr
 		}
