@@ -206,6 +206,7 @@ smbclient=/usr/local/bin/smbclient
 if [ rsynconly -eq 0 ]; then
 for f in $(sed 's/#.*$//;/^$/d' $bkd/dumplist)
 do
+	torm=""
 	thisl=$l
 	case "$f" in
 	sshsmb*)
@@ -485,6 +486,7 @@ do
 					log "level 0 size $size0" > /dev/stderr
 					log "level 1 size $size0" > /dev/stderr
 					thisl=0
+					torm="${torm} ${fn}.1*"
 				fi
 			fi
 		fi
@@ -612,6 +614,7 @@ do
 		summdate="$(date -r $stop +"$datefmt")"
 		_log "$summdate" "Stop  of this level $thisl"
 		savedetails $size $ucsize $f $((stop-start))
+		[ "$torm" ] && rm -f -- "$torm"
 	else
 		if [ -f "$tmpfile.stderr" ]; then
 		    {
