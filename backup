@@ -462,6 +462,7 @@ do
 	esac
 	[ -d $host ] || mkdir $host
 	fn="$(echo "$f" | sed 's,//,,;s,[/:],_,g')"
+	log "dumping $f via $method"
 
 	if [ -f "$host/$fn.0" -a -f "$host/$fn.0.timestamp" ]; then
 		# Do level `0' if the last level `1' is sufficiently close to level `0'
@@ -483,8 +484,8 @@ do
 				res=$(echo "$size1 > ($size0 * $factor)"|bc)
 				if [ res -eq 1 ]; then
 					log "forcing level 0.. level 1 > $(echo "$factor*100"|bc)% of level 0" > /dev/stderr
-					log "level 0 size $size0" > /dev/stderr
-					log "level 1 size $size0" > /dev/stderr
+					log "level 0 size $size0 bytes" > /dev/stderr
+					log "level 1 size $size1 bytes" > /dev/stderr
 					thisl=0
 					torm="${torm} ${fn}.1*"
 				fi
@@ -551,7 +552,6 @@ do
 	start=$(date +%s) 
 	# XXX make start= be stat of timestamp
 	touch "$tmpfile.timestamp"
-	log "dumping $f via $method"
 	_log "$(date -r $start +"$datefmt")" "Start of this level $thisl"
 	case "$thisl" in
 	0)
