@@ -460,8 +460,31 @@ do
 	[ -d $host ] || mkdir $host
 	fn="$(echo "$f" | sed 's,//,,;s,[/:],_,g')"
 
-	# Do level `0' if it does not already exist
-	[ -f "$host/$fn.0" -a -f "$host/$fn.0.timestamp" ] || thisl=0
+	if [ -f "$host/$fn.0" -a -f "$host/$fn.0.timestamp" ]; then
+		# Do level `0' if the last level `1' is sufficiently close to level `0'
+		if [ -f "$host/$fn.1" -a -f "$host/$fn.1.timestamp" ]; then
+			set -A stat0 -- $(ls -nlL "$host/$fn.0")
+			set -A stat1 -- $(ls -nlL "$host/$fn.1")
+			soff=0
+			case "`uname -s`" in
+			FreeBSD) soff=4;;
+			OpenBSD) soff=3;;
+			*) echo "Unsupported os, please report: `uname -s` $(ls -nlL "$host/$fn.0")";;
+			esac
+			# skip calculating size if os not supported
+			if [ soff -ne 0 ]; then
+				size0=${stat0[${soff}]}
+				size1=${stat1[${soff}]}
+				# use 'bc' for math since ksh on all systems does not handle
+				# > 31bit ints, i.e. > 2gb files
+				res=$(echo "$size1 > ($size0 * .8)"|bc)
+				[ res -eq 1 ] && thisl=0
+			fi
+		fi
+	else
+		# Do level `0' if it does not already exist
+		thisl=0
+	fi
 
 	high=-1
 	tmp=-1
