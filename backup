@@ -1,4 +1,4 @@
-#!/usr/local/bin/ksh
+#!/bin/ksh
 
 # Copyright (c) 2001-2008 Todd T. Fries <todd@fries.net>
 #
@@ -135,7 +135,7 @@ savedetails() {
 	#set -x
 	local s="$1" ucs="$2" fs="$3" time="$4"
 	local h m tmp comp ratio
-	if [ s -eq 0 -a ucs -eq 0 ]; then
+	if [ s -eq 0 -o ucs -eq 0 ]; then
 		comp=0
 		ratio=0
 	else
@@ -153,8 +153,14 @@ savedetails() {
 	m=$((tmp/60))
 	s=$((tmp - m*60))
 	[ detailsrun -eq 1 ] && details="$details\n"
-	details="$details$(printf "%7.2f$ucunit %6.2f$ucunit" $ucsize $(echo "scale=2;$ucsize/$time"|bc) ) "
-	details="$details$(printf "%7.2f$unit %6.2f$unit" $size   $(echo "scale=2;$size/$time"|bc) ) "
+	local uctime=0 ctime=0
+	if [ time -ne 0 ]; then
+		uctime="$(echo "scale=2;$ucsize/$time"|bc)"
+		ctime="$(echo "scale=2;$size/$time"|bc)"
+	fi
+	fmt="%7.2f%s %6.2f%s"
+	details="$details$(printf "$fmt" $ucsize $ucunit $uctime $ucunit) "
+	details="$details$(printf "$fmt" $size $unit $ctime $unit) "
 	details="$details$(printf "%6.2f %6.2f " $comp $ratio)"
 	details="$details$(printf "%2d:%02d:%02d" $h $m $s) $fs"
 	detailsrun=1
@@ -564,6 +570,7 @@ do
 	retrycount=0
 	#echo "$tmpfile"
 	#set -x
+	trap 'rm -f ${tmpfile}*; exit 1' 0 1 15
 	while [ retrycount -le maxretry ]; do
 		fail=0
 		backupmethod 2> "$tmpfile.stderr" | \
@@ -628,6 +635,7 @@ do
 		rm -f "$tmpfile"*
 		savedetails -0 -0 $f $((stop-start))
 	fi
+	trap 'exit 0' 0 1 15
 done
 fi
 
