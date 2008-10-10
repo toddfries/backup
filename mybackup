@@ -1,0 +1,58 @@
+#!/bin/sh
+
+# Copyright (c) 2005,2006 Todd T. Fries <todd@fries.net>
+#
+# Permission to use, copy, modify, and distribute this software for any
+# purpose with or without fee is hereby granted, provided that the above
+# copyright notice and this permission notice appear in all copies.
+#
+# THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+# WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+# MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+# ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+# WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+# ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+# OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+
+
+mconnect() {
+	mysql -uroot -p"`cat /etc/.mysql.shadow`" "$@"
+}
+mdump() {
+	mysqldump -uroot -p"`cat /etc/.mysql.shadow`" "$1"
+}
+
+rotate() {
+	local file="$1" num="$2"
+	while [ $num -gt 0 ]
+	do
+		this="${file}.${num}"
+		past="${file}."$(($num + 1))
+		#echo "$this $past"
+		if [ -f "$this" ]; then
+			mv $this $past
+		fi
+		let num=num-1
+	done
+	if [ -f "$file" ]; then
+		mv $file $this
+	fi
+}
+
+list=$(echo show databases | mconnect mysql)
+
+umask 077
+
+backupdir=/var/www/backups
+for db in mysql $list
+do
+	case "$db" in
+	Database) continue;;
+	esac
+	echo -n "==> Backing up $db ... "
+	file="${backupdir}/${db}.dump.gz"
+	rotate "${file}" 20
+	mdump "$db" | gzip -9 > ${file}
+	echo "done."
+	ls -l "${file}"
+done

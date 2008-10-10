@@ -1,0 +1,74 @@
+#!/usr/bin/perl
+
+# Copyright (c) 2007-2008 Todd T. Fries <todd@fries.net>
+#
+# Permission to use, copy, modify, and distribute this software for any
+# purpose with or without fee is hereby granted, provided that the above
+# copyright notice and this permission notice appear in all copies.
+#
+# THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+# WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+# MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+# ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+# WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+# ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+# OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+
+# This program's purpose is to store via mime encapsulated attachments
+# arbitrary data read on stdin broken up into chunks of specified size
+# onto an imap server.
+
+use strict;
+use warnings;
+
+use Mail::IMAPClient;
+use IO::Socket::SSL;
+use IO::Socket::INET;
+
+my $host = "imap.gmail.com";
+#my $host = "freedaemon.com";
+my $id   = "toddfries\@gmail.com";
+#my $pass = "XXXXXXXXXXXXXXX";
+my $port = 993;
+#my $port = 143;
+
+my $sock = IO::Socket::SSL->new(
+			Proto => 'tcp',
+			PeerAddr => $host,
+			PeerPort => $port,
+		);
+#my $sock = IO::Socket::INET->new("${host}:$port");
+
+if (! $sock ) {
+	die "I encountered a problem: ", IO::Socket::SSL::errstr();
+}
+
+my $imap = Mail::IMAPClient->new;
+$imap->User($id);
+$imap->Server($host);
+$imap->Port($port);
+$imap->Debug(1);
+$imap->Debug_fh(\*STDERR);
+$imap->State($imap->Connected);
+$imap->Sock($sock);
+
+$imap->Select("INBOX");
+for my $m (@{$imap->search("test")} ) {
+	printf "Message %s:\t%s\n",$m,$imap->subject($m);
+}
+#$imap->login or die "Could not login: $@\n";
+
+
+#my $authentication_mechanism = "CRAM-MD5";
+#$imap->authenticate($authentication_mechanism)
+#	or die "Could not authenticate: $@\n";
+
+#my $Authenticated = $imap->Authenticated();
+
+my @features = $imap->capability or die "Could not determine capability: $@\n";
+
+$imap->logout or die "Could not close: $@\n";
+
+foreach my $feature (@features) {
+	printf "FEATURE: %s\n",$feature;
+}
