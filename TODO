@@ -17,14 +17,14 @@
   x dump://hostname/dir
     x hostname is only for the dir creation
     - fix the level>0 time issue
-x backup samba shares accessable only via smbclient on a remote system
-  x sshsmb://user@hostname/authname@remotesambahost/remotesharename
-  - timestamp/auth info is xfered by execing a shell remotely, fix this!
+- remote backup security
+  - timestamp/auth info is xfered by execing a shell remotely
+  - create a wrapper program to check carefully
 - concurrency
  - 1st implement rough `maxconcurrence' per backup set
   - look at fetchitdave for inspiration
  - 2nd implement `maxconcurrence' per host and per backup set
- - setup level 0 backups in one queue, non lebel 0 in another, to
+ - setup level 0 backups in one queue, non level 0 in another, to
    permit new hosts etc to not keep level>0 backups from happening for days
 - move filelist creation earlier, so .host_filesyst.level.filelist is moved
    with the rest instead of created after the move
@@ -32,8 +32,6 @@ x backup samba shares accessable only via smbclient on a remote system
    so that reading the data happens as is it written to the disk, not
    reading it back causing more disk io
 
-- error cleanup, don't leave unfinished backups lying around
-  - use trap
 - verify collections don't have more than one backup process running,
    so backups that take more than 24hrs will block other backups from
    running
@@ -45,10 +43,7 @@ x backup samba shares accessable only via smbclient on a remote system
  - permit copying the authorized_keys file into place and setting up the
    remote backup script
 
-x show the time the backup is relative to, if not level 0
-x permit using '-h 0' flag of dump
-  (implemented by default, have to code more to make it optional)
-- implement archiving to tape, e.g. ipmr
+- implement archiving to tape or other storage, e.g. epitome
 - update sshsmb to match smb regarding smbshare/smbdir
 - write recover script to restore data
 
@@ -78,3 +73,14 @@ As spoken to a big chemical client:
 
 - each system backed up can fit in one column, the stats output
   eventually shrink the output to columns
+
+10/10/2008
+x error cleanup, don't leave unfinished backups lying around
+  x use trap
+
+Prior to 10/10/2008
+x show the time the backup is relative to, if not level 0
+x permit using '-h 0' flag of dump
+  (implemented by default, have to code more to make it optional)
+x backup samba shares accessable only via smbclient on a remote system
+  x sshsmb://user@hostname/authname@remotesambahost/remotesharename
