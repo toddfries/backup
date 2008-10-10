@@ -46,6 +46,9 @@ Remote systems via samba:
 
 	to backup on hostname via perms in the AUTH01 file the sharename share.
 
+	In the event a sharename or subdir requires a space (Windows users are notorious for this!), use
+	'%SPACE%' to indicate a space in the path.
+
 Unlike amanda, this system does not require write privileges to samba shares,
 nor does it muck with /etc/dumpdates, nor a rocket science degree to run.
 
