@@ -1,0 +1,264 @@
+#!/bin/ksh
+
+# Copyright (c) 2008 Todd T. Fries <todd@fries.net>
+#
+# Permission to use, copy, modify, and distribute this software for any
+# purpose with or without fee is hereby granted, provided that the above
+# copyright notice and this permission notice appear in all copies.
+#
+# THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+# WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+# MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+# ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+# WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+# ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+# OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+
+user=$(awk -v id=`id -u` -F: '$3 == id {print $1}' /etc/passwd)
+if [ "$user" != "_backup" ]; then
+	echo "This script should only be run as user _backup"
+	exit 1
+fi
+
+if ! [ "$1" ]; then
+	echo "Usage: $0 backupsetname"
+	exit 2
+fi
+
+outputstart=",--------------------------------------------"
+outputstop="\`--------------------------------------------"
+datefmt="%m/%d/%Y %H:%M:%S %Z"
+successcookie="Success.$RANDOM"
+maxretry=3
+maxhist=0
+# what percentage factor of level0 should level1 be before we do a new level0
+factor=0.6
+
+# backup directory
+bkd="/etc/backup/$1"
+
+if ! [ -d "$bkd" ]; then
+	echo "$bkd directory does not exist!"
+	exit 3
+fi
+if ! [ -f "$bkd/dumplist" ]; then
+	echo "$bkd/dumplist file does not exist!"
+	exit 4
+fi
+if [ -f "$bkd/conf" ]; then
+	. $bkd/conf
+fi
+
+if [ -d "$datadir" ]; then
+	cd $datadir
+else
+	echo "$datadir in $bkd/conf does not exist!"
+	exit 5
+fi
+
+#
+# vars not overrideable
+#
+
+totsize=0
+totucsize=0
+
+bubble() {
+	echo "$outputstart"
+	cat
+	echo "$outputstop"
+}
+setunit() {
+	#set -x
+	sone="$1"
+
+	gunit="B "
+	local a="$sone"
+	if [ ${#a} -gt 3 ]; then
+		sone="$(echo "scale=5;$sone/1024"|bc)"
+		gunit=KB
+	fi
+	a="${sone%.*}"
+	if [ ${#a} -gt 3 -a "$gunit" = "KB" ]; then
+		sone="$(echo "scale=5;$sone/1024"|bc)"
+		gunit=MB
+	fi
+	a="${sone%.*}"
+	if [ ${#a} -gt 3 -a "$gunit" = "MB" ]; then
+		sone="$(echo "scale=5;$sone/1024"|bc)"
+		gunit=GB
+	fi
+	a="${sone%.*}"
+	if [ ${#a} -gt 3 -a "$gunit" = "GB" ]; then
+		sone="$(echo "scale=5;$sone/1024"|bc)"
+		gunit=TB
+	fi
+	a="${sone%.*}"
+	if [ ${#a} -gt 3 -a "$gunit" = "TB" ]; then
+		sone="$(echo "scale=5;$sone/1024"|bc)"
+		gunit=PB
+	fi
+}
+detailsrun=0
+savedetails() {
+	#set -x
+	local s="$1" ucs="$2" fs="$3" time="$4"
+	local h m tmp comp ratio
+	if [ s -eq 0 -a ucs -eq 0 ]; then
+		comp=0
+		ratio=0
+	else
+		comp=$(echo "scale=2;100*$s/$ucs"|bc)
+		ratio=$(echo "scale=2;100-$comp"|bc)
+	fi
+	setunit $ucs
+	ucunit="$gunit"
+	ucsize="$sone"
+	setunit $s
+	unit="$gunit"
+	size="$sone"
+	h=$((time/3600))
+	tmp=$((time - h*3600))
+	m=$((tmp/60))
+	s=$((tmp - m*60))
+	[ detailsrun -eq 1 ] && details="$details\n"
+	details="$details$(printf "%7.2f$ucunit %6.2f$ucunit" $ucsize $(echo "scale=2;$ucsize/$time"|bc) ) "
+	details="$details$(printf "%7.2f$unit %6.2f$unit" $size   $(echo "scale=2;$size/$time"|bc) ) "
+	details="$details$(printf "%6.2f %6.2f " $comp $ratio)"
+	details="$details$(printf "%2d:%02d:%02d" $h $m $s) $fs"
+	detailsrun=1
+}
+
+details=""
+_log() {
+	printf "%s %s\n" "$1" "$2"
+}
+log() {
+	_log "$(date +"$datefmt")" "$@"
+}
+
+globalstart=$(date +%s)
+_log "$(date -r $globalstart +"$datefmt")" "pid $$: verify of $@ set starting"
+
+dayofweek=$(date +%w)
+l=${levels[$dayofweek]}
+
+m=$( date +%d )
+
+for f in $(sed 's/#.*$//;/^$/d' $bkd/dumplist)
+do
+	torm=""
+	thisl=$l
+	case "$f" in
+	sshsmb*)
+		method=sshsmb
+		eval $(echo "$f" | sed 's,sshsmb://\([^@]*\)@\([^/]*\)/\([^@]*\)@\([^/]*\)/\(.*\)$,sshuser=\1 sshhost=\2 smbauth=\3 smbhost=\4 smbshare=\5,')
+		host=$sshhost
+		auth=$bkd/${sshhost}_${smbhost}smbauth$smbauth
+		smbshare="$(echo "$smbshare"|sed 's/%SPACE%/ /g')"
+		f="${sshhost}-${smbhost}_${smbshare}"
+		archive="tar"
+	;;
+	smb*)
+		method=smb
+		host=$(echo "$f" | sed 's,smb://.*@\([^/]*\)/.*$,\1,')
+		auth=$bkd/${host}_smbauth$(echo "$f" | sed 's,smb://\([^@]*\)@.*$,\1,')
+		f=$(echo "$f" | sed 's/%SPACE%/ /g;s,smb://[^@]*@\([^/]*\)/\(.*\)$,//\1/\2,')
+		file="$(echo "$f" | sed 's,//[^/]*/\(.*\)$,\1,')"
+		archive="tar"
+	;;
+	tar*) # tar://host/sub/dir/or/device
+		method=tar
+		host=$(echo "$f" | sed 's,tar://\([^/]*\)/.*$,\1,')
+		file=$(echo "$f" | sed 's,tar://[^/]*\(/.*\)$,\1,')
+		f="$host:$file"
+		archive="tar"
+	;;
+	sshtar*) # sshtar://host/sub/dir/or/device
+		method=sshtar
+		host=$(echo "$f" | sed 's,sshtar://.*@\([^/]*\)/.*$,\1,')
+		authkey=$bkd/${host}_sshkey
+		authuser=$(echo "$f" | sed 's,sshtar://\(.*\)@.*$,\1,')
+		file=$(echo "$f" | sed 's,sshtar://.*@[^/]*\(/.*\)$,\1,')
+		f="$host:$file"
+		archive="tar"
+	;;
+	dump*) # dump://host/sub/dir/or/device
+		method=dump
+		host=$(echo "$f" | sed 's,dump://\([^/]*\)/.*$,\1,')
+		file=$(echo "$f" | sed 's,dump://[^/]*\(/.*\)$,\1,')
+		f="$host:$file"
+		archive="dump"
+	;;
+	sshbackup*) # sshverify://user@host/sub/dir/or/device
+		method=sshverify
+		host=$(echo "$f" | sed 's,sshverify://.*@\([^/]*\)/.*$,\1,')
+		authkey=$bkd/${host}_sshkey
+		authuser=$(echo "$f" | sed 's,sshverify://\(.*\)@.*$,\1,')
+		file=$(echo "$f" | sed 's,sshverify://.*@[^/]*\(/.*\)$,\1,')
+		f="$host:$file"
+		archive="dump"
+	;;
+	sshdump*) # sshdump://user@host/sub/dir/or/device
+		method=sshdump
+		host=$(echo "$f" | sed 's,sshdump://.*@\([^/]*\)/.*$,\1,')
+		authkey=$bkd/${host}_sshkey
+		authuser=$(echo "$f" | sed 's,sshdump://\(.*\)@.*$,\1,')
+		file=$(echo "$f" | sed 's,sshdump://.*@[^/]*\(/.*\)$,\1,')
+		f="$host:$file"
+		archive="dump"
+	;;
+	sshafs*) # sshafs://user@host/afsvolume
+		method=sshafs
+		host=$(echo "$f" | sed 's,sshafs://.*@\([^/]*\)/.*$,\1,')
+		authkey=$bkd/${host}_sshkey
+		authuser=$(echo "$f" | sed 's,sshafs://\(.*\)@.*$,\1,')
+		vol=$(echo "$f" | sed 's,sshafs://.*@[^/]*/\(.*\)$,\1,')
+		f="$host:$vol"
+		archive="dump"
+	;;
+	*) # unknown
+		log "Unknown format, skipping: $f"
+		continue
+	;;
+	esac
+	[ -d $host ] || mkdir $host
+	fn="$(echo "$f" | sed 's,//,,;s,[/:],_,g')"
+	log "dumping $f via $method"
+
+	case "$archive" in
+	tar*)
+		verifymethod() {
+			tar tvzf "$1"
+		}
+		extractmethod() {
+			tar xvzf "$1" "$2"
+		}
+	;;
+	dump*)
+		verifymethod() {
+			gzip -d < "$1" | restore -tvf -
+		}
+		extractmethod() {
+			gzip -d < "$1" | restore -xvf -
+		}
+	;;
+	esac
+
+	thisl=0
+	while [ -f "$fn.$thisl" ]; do
+		verifymethod "$fn.$thisl" 2>&1 | bubble
+		ret=$?
+		if [ ret -eq 0 ]; then
+			log "Success! ret=$ret"
+		else
+			log "Failure! ret=$ret"
+		fi
+		let thisl=thisl+1
+	done
+
+done
+
+globalend=$(date +%s)
+
+_log "$(date -r $globalend +"$datefmt")" "pid $$: verify of $@ set completed"

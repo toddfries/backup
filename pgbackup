@@ -1,0 +1,58 @@
+#!/bin/sh
+
+# Copyright (c) 2007-2008 Todd T. Fries <todd@fries.net>
+#
+# Permission to use, copy, modify, and distribute this software for any
+# purpose with or without fee is hereby granted, provided that the above
+# copyright notice and this permission notice appear in all copies.
+#
+# THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+# WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+# MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+# ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+# WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+# ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+# OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+
+PATH=$PATH:/usr/local/bin
+
+backupdir=/var/postgresql/backup
+
+umask 027
+
+export PGPASSFILE=$backupdir/.pgpass
+
+if [ "$1" = "-a" ]; then
+	# backup everything
+	psql -q -t -A -Upostgres template1 -c "select datname from pg_database"|egrep -v "^template[01]$" > $backupdir/.dblist
+else
+	psql -q -t -A -Upostgres template1 -c "select datname from pg_database"|egrep -v "^(dspam|template[01])$" > $backupdir/.dblist
+fi
+
+echo "Postgresql backups:"
+
+# Start by backing up global objects (roles and tablespaces)
+DBFILE=$backupdir/pg_globals.gz
+TMPFILE=$backupdir/.pg_globals.gz
+echo -n "globals -> ${DBFILE}: "
+time sh -c "pg_dumpall -g -Upostgres -l template1 | gzip -9 > $TMPFILE && mv $TMPFILE $DBFILE"
+for db in $(cat $backupdir/.dblist)
+do
+        DBFILE=$backupdir/$db.pgdump.s.gz
+        TMPFILE=$backupdir/.$db.pgdump.s.gz
+        echo -n "$db -> ${DBFILE}: "
+        time sh -c "pg_dump -Upostgres -s $db | gzip -9 > $TMPFILE && mv $TMPFILE $DBFILE"
+
+        DBFILE=$backupdir/$db.pgdump.d.gz
+        TMPFILE=$backupdir/.$db.pgdump.d.gz
+        echo -n "$db -> ${DBFILE}: "
+        time sh -c "pg_dump -Upostgres -C $db | gzip -9 > $TMPFILE && mv $TMPFILE $DBFILE"
+done
+
+dayofweek=$(date +%w)
+if [ $((dayofweek%2)) -eq 1 ]; then
+  echo Skipping clean of spamdb, even day of the week.
+else
+  echo Cleaning spamdb, odd day of the week.
+  time /usr/local/sbin/cleandspamdb
+fi
