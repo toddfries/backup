@@ -68,3 +68,5 @@ if [ $tarlines -eq $listlines ]; then
 else
 	echo "Failure, tarlines=$tarlines, listlines=$listlines"
 fi
+
+rm -rf $td
