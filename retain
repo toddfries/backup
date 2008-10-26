@@ -63,6 +63,8 @@ tarlines=$(tar tzvf $outfile | wc -l)
 listlines=$(wc -l < $td/list)
 
 if [ $tarlines -eq $listlines ]; then
-	echo Successfully archived files, would
-	echo "\# rm -- $(cat $td/list)"
+	echo "Successfully archived files, would have executed the below, not yet.."
+	echo "\# cat $td/list | xargs rm --"
+else
+	echo "Failure, tarlines=$tarlines, listlines=$listlines"
 fi
