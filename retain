@@ -59,7 +59,7 @@ fi
 
 tar cf - $(cat $td/list) | gzip -9 > $outfile
 ls -l $outfile
-tarlines=$(tar tvf $outfile | wc -l)
+tarlines=$(tar tzvf $outfile | wc -l)
 listlines=$(wc -l < $td/list)
 
 if [ $tarlines -eq $listlines ]; then
