@@ -56,3 +56,12 @@ do
 	echo "done."
 	ls -l "${file}"
 done
+
+# for maintenance also, prior to backup, should do:
+# show tables;
+# show master logs;
+# purge master logs to 'blah'; (last entry)
+# for each db
+#   use db;
+#   for each table
+#      repair table foo;
