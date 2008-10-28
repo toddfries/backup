@@ -39,36 +39,43 @@ if ! [ -d $retaindir ]; then
 	exit 1
 fi
 
-td=`mktemp -d /tmp/.retain.XXXXXXXXXX`
+td=`mktemp -d /tmp/.retain.XXXXXX`
 
 cd $radacct
 
 # Make a list of files to archive; only do it once not only to
 # conserve processing required, but also to make sure we back up
 # what we later remove..
-find * -type f -mtime -$days > $td/list
-
-# Make sure to choose a unique filename, so we don't over-write data
-fpattern="$retaindir/$(date +%Y/%m/%Y%m%d-%H_%M_%S).XXXXXXXXXXX"
-outdir="$(dirname "$fpattern")"
-mkdir -p "$outdir"
-outfile="$(mktemp "$fpattern")"
-
-if ! [ "$outfile" ]; then
-	echo "Failed to create output file, aborting"
-	exit 1
-fi
-
-tar cf - $(cat $td/list) | gzip -9 > $outfile
-ls -l $outfile
-tarlines=$(tar tzvf $outfile | wc -l)
+find * -type f -mtime $days > $td/list
 listlines=$(wc -l < $td/list)
 
-if [ $tarlines -eq $listlines ]; then
-	echo "Successfully archived files, would have executed the below, not yet.."
-	cat $td/list | xargs rm --
-else
-	echo "Failure, tarlines=$tarlines, listlines=$listlines"
+if [ listlines -gt 0 ]; then
+
+	# Make sure to choose a unique filename, so we don't over-write data
+	fpattern="$retaindir/$(date +%Y/%m/%Y%m%d-%H_%M_%S).XXXXXX"
+	outdir="$(dirname "$fpattern")"
+	mkdir -p "$outdir"
+	outfile="$(mktemp "$fpattern")"
+	if ln $outfile $outfile.tgz; then
+		rm $outfile
+		outfile="$outfile.tgz"
+	fi
+	
+	if ! [ "$outfile" ]; then
+		echo "Failed to create output file, aborting"
+		exit 1
+	fi
+
+	tar cf - $(cat $td/list) | gzip -9 > $outfile
+	ls -l $outfile
+	tarlines=$(tar tzvf $outfile | wc -l)
+
+	if [ $tarlines -eq $listlines ]; then
+		echo "Successfully archived $tarlines files"
+		cat $td/list | xargs rm --
+	else
+		echo "Failure, tarlines=$tarlines, listlines=$listlines"
+	fi
 fi
 
 cd $radlogdir
