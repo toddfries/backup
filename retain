@@ -14,6 +14,8 @@
 # ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 # OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 
+# This script should be run on the radius daemon host
+
 # where logs are
 radlogdir=/var/log/radius
 # where data is retained
@@ -47,7 +49,7 @@ cd $radacct
 find * -type f -mtime -$days > $td/list
 
 # Make sure to choose a unique filename, so we don't over-write data
-fpattern="$retaindir/$(date +%Y/%m/%d-%H_%M_%S).$$.XXXXXXXXXXX"
+fpattern="$retaindir/$(date +%Y/%m/%Y%m%d-%H_%M_%S).XXXXXXXXXXX"
 outdir="$(dirname "$fpattern")"
 mkdir -p "$outdir"
 outfile="$(mktemp "$fpattern")"
@@ -64,9 +66,25 @@ listlines=$(wc -l < $td/list)
 
 if [ $tarlines -eq $listlines ]; then
 	echo "Successfully archived files, would have executed the below, not yet.."
-	echo "\# cat $td/list | xargs rm --"
+	cat $td/list | xargs rm --
 else
 	echo "Failure, tarlines=$tarlines, listlines=$listlines"
 fi
+
+cd $radlogdir
+
+for f in radius.log radwtmp radutmp
+do
+	if [ -f $f.0 ]; then
+		mv $f.0 $retaindir/$f.0
+		gzip -9 $retaindir/$f.0
+	fi
+done
+mv radius.log radius.log.0
+mv radutmp radutmp.0
+mv radwtmp radwtmp.0
+
+cd $retaindir
+chmod 755 ???? ????/??
 
 rm -rf $td
