@@ -1,0 +1,35 @@
+#!/bin/sh
+
+# move files from $sshhost to local system after being compressed on $sshhost..
+
+sshxtra="-F /etc/backup/EXAMPLE/host1.example.com_sshconfig"
+sshuser="root"
+sshhost="host1.example.com"
+rmtworkdir="/home/todd/retention"
+locworkdir="/wrist/backups/radius"
+
+cd $locworkdir || exit 1
+
+ssh $sshxtra ${sshuser}@$sshhost /usr/local/sbin/retain || exit 2
+
+rsync -rtvzP -e "ssh $sshxtra" ${sshuser}@${sshhost}:$rmtworkdir/. . || exit 3
+
+(
+	echo -n "mkdir $rmtworkdir/old && "
+	echo -n "mv $rmtworkdir/* $rmtworkdir/old 2> /dev/null && "
+	echo  "rm -rf old"
+) | ssh -F /etc/backup/EXAMPLE/host1.example.com_sshconfig ${sshuser}@$sshhost sh
+
+# move files to YYYY/MM subfolders
+for f in radwtmp radutmp radius.log; do
+	[ -f "${f}.0.gz" ] || continue
+	eval $(stat -s "${f}.0.gz")
+	dst=$(date +%Y/%m/${f}-%Y%m%d-%H_%M_%S)   
+	if ! ln ${f}.0.gz $dst.gz; then
+		nf=$(mktemp "$dst.XXXXXX")
+		ln $nf $nf.tgz && rm $nf && mv ${f}.0.gz ${nf}.tgz
+	fi
+	# if stat shows nlink > 1 then..
+	ls -l ${f}.0.gz
+	rm ${f}.0.gz
+done
