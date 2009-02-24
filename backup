@@ -576,7 +576,7 @@ do
 		backupmethod 2> "$tmpfile.stderr" | \
 			$aprog -$aopt > "$tmpfile"
 		if [ "$(tail -1 "$tmpfile.stderr" | egrep "$successcookie$" 2> /dev/null)" ] && \
-			! [ "$(tail "$tmpfile.stderr" | egrep -i "Connection reset by peer|Connection timed out|denied|failed|Command not found|Killed " 2> /dev/null)" ]; then
+			! [ "$(tail "$tmpfile.stderr" | egrep -i "Connection reset by peer|Connection timed out|denied|failed|Command not found|Killed |^ssh:.*:Operation timed out" 2> /dev/null)" ]; then
 			rotate "$outfile"
 			mv "$tmpfile" "$outfile" && \
 			mv "$tmpfile.timestamp" "$outfile.timestamp" && \
