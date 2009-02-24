@@ -87,6 +87,8 @@ else
 	exit 5
 fi
 
+sshxtra="$sshxtra -o BatchMode=yes "
+
 #
 # vars not overrideable
 #
