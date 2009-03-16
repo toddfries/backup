@@ -455,7 +455,9 @@ do
 			fi
 			cmd="$cmd -i $authkey "
 			cmd="$cmd $authuser@$host "
-			cmd="$cmd /usr/local/sbin/vos dump $vol "
+			cmd="$cmd /usr/local/sbin/vos "
+			$cmd backup $vol || return
+			cmd="$cmd dump ${vol}.backup "
 			if [ "$nfil" ]; then
 				cmd="$cmd -time \"$(date -r $(stat -f%c "$nfil") +"%m/%d/%Y %H:%M")\" "
 			fi
