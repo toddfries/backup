@@ -1,3 +1,22 @@
+- use size of filesystem (`df' like info, have to implement for all
+  filesystems supported, samba, afs, ..) to determine when to bump
+  back to level 0
+- when bumping levels, don't treat 0 special, any level that is
+   a) bigger than its next lower level
+   b) filesystem is smaller than the next lower level
+   .. might need a bump back down
+- permit specifying how many days to keep data around for,
+  i.e. minimumdays=14, but be clear the higher the number the
+  bigger the dumps will get
+- per file extraction of all archives (i.e. for epitome)
+- optional compression on the client or the server (especially
+  useful for parallel operations and/or lzma -9)
+- store stats about each backup, what type of compression, etc
+- permit specifying a gpg key in the global conf per backup set
+  to use locally or remotely, remote gpg encryption necessitates
+  remote compression prior to encryption as well as remote file
+  listing in a separate file descriptor
+- load dumplist into an array vs for.. in $(sed ../dumplist)
 - afs
   - permit specifying '*' for volume names, i.e. fdc.finance.*
 - sanity checking of syntax, i.e. invalid typical things:
@@ -71,7 +90,8 @@ As spoken to a big chemical client:
  - integrate openssl for passphrase encrypted backups
  - implement archiving to tape
 
-
+- check space used by the archive vs the data storage, if level0 is much
+  larger and days since level0 is greater than x, new level0
 - each system backed up can fit in one column, the stats output
   eventually shrink the output to columns
 
