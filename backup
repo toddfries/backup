@@ -64,6 +64,9 @@ maxretry=3
 maxhist=0
 # what percentage factor of level0 should level1 be before we do a new level0
 factor=0.6
+aprog=gzip
+aopt=9
+
 
 # backup directory
 bkd="/etc/backup/$1"
@@ -313,7 +316,7 @@ do
 			fi
 		}
 		listmethod() {
-			gzip -d < "$outfile" | tar -tvf - | \
+			$aprog -d < "$outfile" | tar -tvf - | \
 				awk '	/^d/	{next} \
 					/^\-/	{ $1="";print} \
 						{print}'
@@ -349,7 +352,7 @@ do
 			$cmd && echo $successcookie > /dev/stderr
 		}
 		listmethod() {
-			gzip -d < "$outfile" | tar -tvf - | \
+			$aprog -d < "$outfile" | tar -tvf - | \
 				awk '	/^d/	{next} \
 					/^\-/	{ $1="";print} \
 						{print}'
@@ -379,7 +382,7 @@ do
 			$cmd && echo $successcookie > /dev/stderr
 		}
 		listmethod() {
-			gzip -d < "$outfile" | restore -tyvf - | \
+			$aprog -d < "$outfile" | restore -tyvf - | \
 				awk '	/^dir/	{next} \
 					/leaf/	{ $1="";print} \
 						{print}'
@@ -405,7 +408,7 @@ do
 			$cmd && echo $successcookie > /dev/stderr
 		}
 		listmethod() {
-			gzip -d < "$outfile" | restore -tvyf - | \
+			$aprog -d < "$outfile" | restore -tvyf - | \
 				awk '	/^dir/	{next} \
 					/leaf/	{ $1="";print} \
 						{print}'
@@ -435,7 +438,7 @@ do
 			$cmd && echo $successcookie > /dev/stderr
 		}
 		listmethod() {
-			gzip -d < "$outfile" | restore -tvyf - | \
+			$aprog -d < "$outfile" | restore -tvyf - | \
 				awk '	/^dir/	{next} \
 					/leaf/	{ $1="";print} \
 						{print}'
@@ -552,9 +555,6 @@ do
 		#echo "$f calculated level: req/high/tmp = $thisl/$high/$tmp"
 	;;
 	esac
-
-	aprog=gzip
-	aopt=9
 
 	outfile="$fn.$thisl"
 	tmpfile="$(mktemp "$datadir/$host/.$outfile.XXXXXXXXXXX")"
