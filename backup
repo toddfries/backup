@@ -28,7 +28,8 @@ else
 	rsynconly=0
 fi
 
-if ! [ "$1" ]; then
+setname="$1"
+if ! [ "$setname" ]; then
 	echo "Usage: $0 backupsetname"
 	exit 2
 fi
@@ -66,10 +67,10 @@ maxhist=0
 factor=0.6
 aprog=gzip
 aopt=9
-
+notify="root@$(hostname)"
 
 # backup directory
-bkd="/etc/backup/$1"
+bkd="/etc/backup/$setname"
 
 if ! [ -d "$bkd" ]; then
 	echo "$bkd directory does not exist!"
@@ -164,7 +165,7 @@ savedetails() {
 		ctime="$(echo "scale=2;$size/$time"|bc)"
 	fi
 	fmt="%7.2f%s %6.2f%s"
-	details="$details$(printf "$fmt" $ucsize $ucunit $uctime $ucunit) "
+	details="$details$(printf "$fmt" $ucsize "$ucunit" $uctime "$ucunit") "
 	details="$details$(printf "$fmt" $size $unit $ctime $unit) "
 	details="$details$(printf "%6.2f %6.2f " $comp $ratio)"
 	details="$details$(printf "%2d:%02d:%02d" $h $m $s) $fs"
@@ -172,7 +173,7 @@ savedetails() {
 }
 
 details=""
-logfile="$datadir/$(date +%Y%m%d%H%M%S).log"
+logfile="$datadir/$setname.$(date +%Y%m%d%H%M%S).log"
 _log() {
 	printf "%s %s\n" "$1" "$2" >> $logfile
 }
@@ -374,7 +375,7 @@ do
 			FreeBSD) cmd="$cmd -L ";;
 			esac
 			if [ "$nfil" ]; then
-				cmd="$cmd -T \"\$(date -r $(stat -f%c "$nfil") +"%a %b %e %H:%M:%S %Y")\" "
+				cmd="$cmd -T \"$(date -r $(stat -f%c "$nfil") +"%a %b %e %H:%M:%S %Y")\" "
 			fi
 			cmd="$cmd -0a -f - $file"
 			echo "$cmd" > /dev/stderr
@@ -688,6 +689,5 @@ savedetails $totsize $totucsize Total $((globalend-globalstart))
 echo "  Uncompressed        Compressed       Percent        Time     FileSystem"
 echo "data       speed/s  data      speed/s  %      %     HH:MM:SS hostname:/subdir"
 echo "$details"
-} | bubble
+} | bubble | mail -s "backup: $setname $totsize $((globalend-globalstart))s" $notify
 _log "$(date -r $globalend +"$datefmt")" "pid $$: backup of $@ set completed"
-    
