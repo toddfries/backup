@@ -68,6 +68,7 @@ factor=0.6
 aprog=gzip
 aopt=9
 notify="root@$(hostname)"
+notifydetail=""
 
 # backup directory
 bkd="/etc/backup/$setname"
@@ -164,7 +165,7 @@ savedetails() {
 		uctime="$(echo "scale=2;$ucsize/$time"|bc)"
 		ctime="$(echo "scale=2;$size/$time"|bc)"
 	fi
-	fmt="%7.2f%s %6.2f%s"
+	fmt="%7.2f%-2s %6.2f%-2s"
 	details="$details$(printf "$fmt" $ucsize "$ucunit" $uctime "$ucunit") "
 	details="$details$(printf "$fmt" $size $unit $ctime $unit) "
 	details="$details$(printf "%6.2f %6.2f " $comp $ratio)"
@@ -682,12 +683,24 @@ if [ "$remotemirror" ]; then
 	fi
 fi
 globalend=$(date +%s)
-
-savedetails $totsize $totucsize Total $((globalend-globalstart))
+globaltime=$((globalend-globalstart))
+savedetails $totsize $totucsize Total $globaltime
+setunit $totsize
+tsize="$(printf "%.2f%-2s" "$sone" "$gunit")"
 #cho "1148.64MB  28.71MB  525.62MB  13.14MB  45.76  54.24  0:05:00 Total"
 {
 echo "  Uncompressed        Compressed       Percent        Time     FileSystem"
 echo "data       speed/s  data      speed/s  %      %     HH:MM:SS hostname:/subdir"
 echo "$details"
-} | bubble | mail -s "backup: $setname $totsize $((globalend-globalstart))s" $notify
+} | bubble > "${logfile%*.log}".summary
 _log "$(date -r $globalend +"$datefmt")" "pid $$: backup of $@ set completed"
+
+# Mail Notification(s)
+mail -s "backup: $setname $tsize ${globaltime}s" $notify < ${logfile%*.log}.summary
+if [ "$notifydetail" ]; then
+	{
+		cat ${logfile%*.log}.summary
+		echo
+		cat $logfile
+	} | mail -s "backup: $setname $tsize ${globaltime}s (detailed)" $notifydetail
+fi
