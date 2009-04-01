@@ -140,7 +140,7 @@ setunit() {
 detailsrun=0
 savedetails() {
 	#set -x
-	local s="$1" ucs="$2" fs="$3" time="$4"
+	local s="$1" ucs="$2" fs="$3" time="$4" level="$5"
 	local h m tmp comp ratio
 	if [ s -eq 0 -o ucs -eq 0 ]; then
 		comp=0
@@ -169,7 +169,7 @@ savedetails() {
 	details="$details$(printf "$fmt" $ucsize "$ucunit" $uctime "$ucunit") "
 	details="$details$(printf "$fmt" $size $unit $ctime $unit) "
 	details="$details$(printf "%6.2f %6.2f " $comp $ratio)"
-	details="$details$(printf "%2d:%02d:%02d" $h $m $s) $fs"
+	details="$details$(printf "%2d:%02d:%02d %2s" $h $m $s $level) $fs"
 	detailsrun=1
 }
 
@@ -625,7 +625,7 @@ do
 		totucsize="$( echo $ucsize + $totucsize | bc )"
 		summdate="$(date -r $stop +"$datefmt")"
 		_log "$summdate" "Stop  of this level $thisl"
-		savedetails $size $ucsize $f $((stop-start))
+		savedetails $size $ucsize $f $((stop-start)) $thisl
 		[ "$torm" ] && rm -f -- "$torm"
 	else
 		if [ -f "$tmpfile.stderr" ]; then
@@ -638,7 +638,7 @@ do
 		fi
 		log "Fail  of this level $thisl"
 		rm -f "$tmpfile"*
-		savedetails -0 -0 $f $((stop-start))
+		savedetails -0 -0 $f $((stop-start)) $thisl
 	fi
 	trap 'exit 0' 0 1 15
 done 
@@ -684,13 +684,13 @@ if [ "$remotemirror" ]; then
 fi
 globalend=$(date +%s)
 globaltime=$((globalend-globalstart))
-savedetails $totsize $totucsize Total $globaltime
+savedetails $totsize $totucsize Total $globaltime -
 setunit $totsize
 tsize="$(printf "%.2f%-2s" "$sone" "$gunit")"
-#cho "1148.64MB  28.71MB  525.62MB  13.14MB  45.76  54.24  0:05:00 Total"
 {
-echo "  Uncompressed        Compressed       Percent        Time     FileSystem"
-echo "data       speed/s  data      speed/s  %      %     HH:MM:SS hostname:/subdir"
+echo "  Uncompressed        Compressed       Percent        Time  Level FileSystem"
+echo "     data  speed/s      data  speed/s      %      % HH:MM:SS    hostname:/subdir"
+#cho "  43.49KB   1.01KB    7.21KB   0.16KB  16.58  83.42  0:00:43 10 (Total)"
 echo "$details"
 } > "${logfile%*.log}".summary
 _log "$(date -r $globalend +"$datefmt")" "pid $$: backup of $@ set completed"
