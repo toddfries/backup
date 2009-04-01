@@ -172,8 +172,9 @@ savedetails() {
 }
 
 details=""
+logfile="$datadir/$(date +%Y%m%d%H%M%S).log"
 _log() {
-	printf "%s %s\n" "$1" "$2"
+	printf "%s %s\n" "$1" "$2" >> $logfile
 }
 log() {
 	_log "$(date +"$datefmt")" "$@"
@@ -237,7 +238,7 @@ do
 			scmd="$scmd $sshuser@$sshhost "
 
 			cmd="$smbclient -d2 -E -A%s //$smbhost/$smbshare -D / -c 'tarmode full' -Tc%s %s -"
-			log "$cmd" $auth $nopt "$nfil" > /dev/stderr
+			echo "$cmd" $auth $nopt "$nfil" > /dev/stderr
 			{
 				echo "d=\$(mktemp -d /tmp/.smbbackup.XXXXXXXXXX)"
 				echo "cd \$d"
@@ -304,8 +305,7 @@ do
 				cmd="$cmd -T $(date -r $(stat -f%c "$nfil") +"%Y%m%d%H%M.%S") "
 			fi
 			cmd="$cmd ."
-			log "$cmd $file" > /dev/stderr
-			#set -x
+			echo "$cmd $file" > /dev/stderr
 			if [ -d $file ]; then
 				( cd $file; $cmd && echo $successcookie > /dev/stderr )
 			else
@@ -322,7 +322,7 @@ do
 						{print}'
 			if [ -f "${outfile}.stderr" ]; then
 				if egrep "^pax: " "${outfile}.stderr" > /dev/null 2>&1; then
-					egrep "^pax: " "${outfile}.stderr" | bubble > /dev/stderr
+					egrep "^pax: " "${outfile}.stderr" | bubble >> $logfile
 				fi
 			fi
 		}
@@ -348,7 +348,7 @@ do
 				cmd="$cmd -T $(date -r $(stat -f%c "$nfil") +"%y%m%d%H%M.%S") "
 			fi
 			cmd="$cmd .\""
-			log "$cmd $file" > /dev/stderr
+			echo "$cmd $file" > /dev/stderr
 			$cmd && echo $successcookie > /dev/stderr
 		}
 		listmethod() {
@@ -358,7 +358,7 @@ do
 						{print}'
 			if [ -f "${outfile}.stderr" ]; then
 				if egrep "^pax: " "${outfile}.stderr" > /dev/null 2>&1; then
-					egrep "^pax: " "${outfile}.stderr"  | bubble > /dev/stderr
+					egrep "^pax: " "${outfile}.stderr"  | bubble >> $logfile
 				fi
 			fi
 		}
@@ -377,8 +377,7 @@ do
 				cmd="$cmd -T \"\$(date -r $(stat -f%c "$nfil") +"%a %b %e %H:%M:%S %Y")\" "
 			fi
 			cmd="$cmd -0a -f - $file"
-			log "$cmd" > /dev/stderr
-			#set -x
+			echo "$cmd" > /dev/stderr
 			$cmd && echo $successcookie > /dev/stderr
 		}
 		listmethod() {
@@ -403,7 +402,7 @@ do
 			cmd="$cmd -i $authkey "
 			cmd="$cmd $authuser@$host "
 			cmd="$cmd /usr/sbin/backup -${thisl}uf - $file "
-			log "$cmd" > /dev/stderr
+			echo "$cmd" > /dev/stderr
 			#set -x
 			$cmd && echo $successcookie > /dev/stderr
 		}
@@ -433,7 +432,7 @@ do
 				cmd="$cmd -T \"$(date -r $(stat -f%c "$nfil") +"%a %b %e %H:%M:%S %Y")\" "
 			fi
 			cmd="$cmd -0a -f - $file"
-			log "$cmd" > /dev/stderr
+			echo "$cmd" > /dev/stderr
 			#set -x
 			$cmd && echo $successcookie > /dev/stderr
 		}
@@ -465,7 +464,7 @@ do
 				cmd="$cmd -time \"$(date -r $(stat -f%c "$nfil") +"%m/%d/%Y %H:%M")\" "
 			fi
 			cmd="$cmd -localauth"
-			log "$cmd" > /dev/stderr
+			echo "$cmd" > /dev/stderr
 			$cmd && echo "$successcookie" > /dev/stderr
 		}
 		listmethod() {
@@ -496,16 +495,16 @@ do
 				# > 31bit ints, i.e. > 2gb files
 				res=$(echo "$size1 > ($size0 * $factor)"|bc)
 				if [ res -eq 1 ]; then
-					log "forcing level 0.. level 1 > $(echo "$factor*100"|bc)% of level 0" > /dev/stderr
-					log "level 0 size $size0 bytes" > /dev/stderr
-					log "level 1 size $size1 bytes" > /dev/stderr
+					log "forcing level 0.. level 1 > $(echo "$factor*100"|bc)% of level 0"
+					log "level 0 size $size0 bytes"
+					log "level 1 size $size1 bytes"
 					thisl=0
 					torm="${torm} ${fn}.1*"
 				fi
 			fi
 		fi
 	else
-		log "forcing level 0.. level 0 does not exist" > /dev/stderr
+		log "forcing level 0.. level 0 does not exist"
 		# Do level `0' if it does not already exist
 		thisl=0
 	fi
@@ -604,7 +603,7 @@ do
 	stop=$(date +%s)
 
 	if [ -f "$outfile.stderr" -a fail -eq 0 ]; then
-		tail -4 "$outfile.stderr" | head -3 | bubble
+		tail -4 "$outfile.stderr" | head -3 | bubble >> $logfile
 	else
 		if ! [ -f "${tmpfile}.stderr" ]; then
 		    {
@@ -613,7 +612,7 @@ do
 			echo "${tmpfile}.stderr"
 			echo "${outfile}.stderr"
 			ls -l ${outfile}.stderr ${tmpfile}.stderr 2>&1
-		    } | bubble
+		    } | bubble >> $logfile
 		fi
 	fi
 
@@ -633,14 +632,14 @@ do
 			echo "$tmpfile"
 			echo "   Stderr:"
 			cat "$tmpfile.stderr"
-		    } | bubble
+		    } | bubble >> $logfile
 		fi
 		log "Fail  of this level $thisl"
 		rm -f "$tmpfile"*
 		savedetails -0 -0 $f $((stop-start))
 	fi
 	trap 'exit 0' 0 1 15
-done
+done 
 fi
 
 # remotemirror should be of the form
