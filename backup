@@ -690,3 +690,4 @@ echo "data       speed/s  data      speed/s  %      %     HH:MM:SS hostname:/sub
 echo "$details"
 } | bubble
 _log "$(date -r $globalend +"$datefmt")" "pid $$: backup of $@ set completed"
+    
