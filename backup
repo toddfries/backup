@@ -692,7 +692,7 @@ tsize="$(printf "%.2f%-2s" "$sone" "$gunit")"
 echo "  Uncompressed        Compressed       Percent        Time     FileSystem"
 echo "data       speed/s  data      speed/s  %      %     HH:MM:SS hostname:/subdir"
 echo "$details"
-} | bubble > "${logfile%*.log}".summary
+} > "${logfile%*.log}".summary
 _log "$(date -r $globalend +"$datefmt")" "pid $$: backup of $@ set completed"
 
 # Mail Notification(s)
