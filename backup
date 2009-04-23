@@ -692,7 +692,7 @@ fi
 globalend=$(date +%s)
 globaltime=$((globalend-globalstart))
 savedetails $totsize $totucsize Total $globaltime -
-setunit $totsize
+setunit $totucsize
 tsize="$(printf "%.2f%-2s" "$sone" "$gunit")"
 {
 echo "  Uncompressed        Compressed       Percent        Time  Level FileSystem"
