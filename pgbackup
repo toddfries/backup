@@ -14,6 +14,8 @@
 # ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 # OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 
+# Note: because of -Fc, only works with 8.3.x and above
+
 PATH=$PATH:/usr/local/bin
 
 backupdir=/var/postgresql/backup
@@ -35,18 +37,18 @@ echo "Postgresql backups:"
 DBFILE=$backupdir/pg_globals.gz
 TMPFILE=$backupdir/.pg_globals.gz
 echo -n "globals -> ${DBFILE}: "
-time sh -c "pg_dumpall -g -Upostgres -l template1 | gzip -9 > $TMPFILE && mv $TMPFILE $DBFILE"
+time sh -c "pg_dumpall -g -Upostgres -l template1 -Fc --compress=0 | gzip -9 > $TMPFILE && mv $TMPFILE $DBFILE"
 for db in $(cat $backupdir/.dblist)
 do
         DBFILE=$backupdir/$db.pgdump.s.gz
         TMPFILE=$backupdir/.$db.pgdump.s.gz
         echo -n "$db -> ${DBFILE}: "
-        time sh -c "pg_dump -Upostgres -s $db | gzip -9 > $TMPFILE && mv $TMPFILE $DBFILE"
+        time sh -c "pg_dump -Upostgres -s -Fc --compress=0 $db | gzip -9 > $TMPFILE && mv $TMPFILE $DBFILE"
 
         DBFILE=$backupdir/$db.pgdump.d.gz
         TMPFILE=$backupdir/.$db.pgdump.d.gz
         echo -n "$db -> ${DBFILE}: "
-        time sh -c "pg_dump -Upostgres -C $db | gzip -9 > $TMPFILE && mv $TMPFILE $DBFILE"
+        time sh -c "pg_dump -Upostgres -C -Fc --compress=0 $db | gzip -9 > $TMPFILE && mv $TMPFILE $DBFILE"
 done
 
 dayofweek=$(date +%w)
