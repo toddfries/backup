@@ -60,7 +60,7 @@ set -A levels 6 5 4 3 2 1 7 6
 outputstart=",--------------------------------------------"
 outputstop="\`--------------------------------------------"
 datefmt="%m/%d/%Y %H:%M:%S %Z"
-successcookie="Success.$RANDOM"
+successcookie="$(echo "Success.$RANDOM$RANDOM$RANDOM.pid$$")"
 maxretry=3
 maxhist=0
 # what percentage factor of level0 should level1 be before we do a new level0
@@ -215,12 +215,27 @@ rotate() {
 	fi
 }
 
+# In some manner, 'ls' output is not supported,
+# either the OS itself or it is not a number etc.
+# Only report once per run.
+reportedls=0
+reportls() {
+	local statcount=0
+	local statstr=""
+	[ reportedls -eq 1 ] && return
+	reportedls=1
+	while [ "${stat0[$statcount]}" ]; do
+		statstr="$statstr $statcount(${stat0[$statcount]})"
+		let statcount=statcount+1
+	done
+	log "Unsupported os, please report: os(`uname -s`) $statstr"
+}
+
 smbclient=/usr/local/bin/smbclient
 
 if [ rsynconly -eq 0 ]; then
 for f in $(sed 's/#.*$//;/^$/d' $bkd/dumplist)
 do
-	torm=""
 	thisl=$l
 	case "$f" in
 	sshsmb*)
@@ -255,7 +270,8 @@ do
 				echo EOF
 				printf "$cmd" smbauth $nopt $smbfile
 				#echo "rm -rf \$d"
-			} | $scmd sh && echo $successcookie > /dev/stderr
+			} | $scmd sh && echo "$successcookie" > /dev/stderr || \
+			echo "returned $?" > /dev/stderr
 		}
 		listmethod() {
 			tar tvzf "$outfile" | \
@@ -280,10 +296,10 @@ do
 			echo "smbclient -d2 -E -A$auth \"//$host/$smbshare\" -D \"$smbsubdir\" -c 'tarmode full' -Tc$nopt \"$nfil\" -" > /dev/stderr
 			if [ "$nfil" ]; then
 				$smbclient -d2 -E -A$auth "//$host/$smbshare" -D "$smbsubdir" \
-					-c 'tarmode full' -Tc$nopt "$nfil" - && echo $successcookie > /dev/stderr
+					-c 'tarmode full' -Tc$nopt "$nfil" - && echo "$successcookie" > /dev/stderr || echo "returned $?" > /dev/stderr
 			else
 				$smbclient -d2 -E -A$auth "//$host/$smbshare" -D "$smbsubdir" \
-					-c 'tarmode full' -Tc  - && echo $successcookie > /dev/stderr
+					-c 'tarmode full' -Tc  - && echo "$successcookie" > /dev/stderr || echo "returned $?" > /dev/stderr
 			fi
 		}
 		listmethod() {
@@ -309,11 +325,11 @@ do
 			cmd="$cmd ."
 			echo "$cmd $file" > /dev/stderr
 			if [ -d $file ]; then
-				( cd $file; $cmd && echo $successcookie > /dev/stderr )
+				( cd $file; $cmd && echo "$successcookie" > /dev/stderr || echo "returned $?" > /dev/stderr  )
 			else
 				bd=$(dirname $file)
 				if [ -d $bd ]; then
-					( cd $bd; $cmd $(basename $file) && echo $successcookie > /dev/stderr )
+					( cd $bd; $cmd $(basename $file) && echo "$successcookie" > /dev/stderr || echo "returned $?" > /dev/stderr )
 				fi
 			fi
 		}
@@ -351,7 +367,7 @@ do
 			fi
 			cmd="$cmd .\""
 			echo "$cmd $file" > /dev/stderr
-			$cmd && echo $successcookie > /dev/stderr
+			$cmd && echo "$successcookie" > /dev/stderr || echo "returned $?" > /dev/stderr
 		}
 		listmethod() {
 			$aprog -d < "$outfile" | tar -tvf - | \
@@ -382,7 +398,7 @@ do
 			fi
 			args="-0a -f - $file"
 			echo "$cmd $time $timecmd $args" > /dev/stderr
-			$cmd $time "$timecmd" $args && echo $successcookie > /dev/stderr
+			$cmd $time "$timecmd" $args && echo "$successcookie" > /dev/stderr || echo "returned $?" > /dev/stderr
 		}
 		listmethod() {
 			$aprog -d < "$outfile" | restore -tyvf - | \
@@ -408,7 +424,7 @@ do
 			cmd="$cmd /usr/sbin/backup -${thisl}uf - $file "
 			echo "$cmd" > /dev/stderr
 			#set -x
-			$cmd && echo $successcookie > /dev/stderr
+			$cmd && echo "$successcookie" > /dev/stderr || echo "returned $?" > /dev/stderr
 		}
 		listmethod() {
 			$aprog -d < "$outfile" | restore -tvyf - | \
@@ -439,7 +455,7 @@ do
 			fi
 			args="-0a -f - $file"
 			echo "$cmd $time $timecmd $args" > /dev/stderr
-			$cmd $time "'$timecmd'" $args && echo $successcookie > /dev/stderr
+			$cmd $time "'$timecmd'" $args && echo "$successcookie" > /dev/stderr || echo "returned $?" > /dev/stderr
 		}
 		listmethod() {
 			$aprog -d < "$outfile" | restore -tvyf - | \
@@ -470,7 +486,7 @@ do
 			fi
 			cmd="$cmd -localauth"
 			echo "$cmd" > /dev/stderr
-			$cmd && echo "$successcookie" > /dev/stderr
+			$cmd && echo "$successcookie" > /dev/stderr || echo "returned $?" > /dev/stderr
 		}
 		listmethod() {
 			echo "No listing for sshafs implemented yet"
@@ -482,30 +498,42 @@ do
 	log "dumping $f via $method"
 
 	if [ -f "$host/$fn.0" -a -f "$host/$fn.0.timestamp" ]; then
-		# Do level `0' if the last level `1' is sufficiently close to level `0'
-		if [ -f "$host/$fn.1" -a -f "$host/$fn.1.timestamp" ]; then
-			set -A stat0 -- $(ls -nlL "$host/$fn.0")
-			set -A stat1 -- $(ls -nlL "$host/$fn.1")
+		# Do level `thisl-1' if the last level `thisl' is sufficiently close to level `thisl'
+		# only if the timestamp of `thisl-1' is older than `thisl', incase `thisl-1' really is
+		# smaller!
+		let thisk=thisl-1
+		if [ -f "$host/$fn.${thisl}" -a -f "$host/$fn.${thisl}.timestamp" -a \
+		     -f "$host/$fn.${thisk}" -a -f "$host/$fn.${thisk}.timestamp" -a \
+			"$host/$fn.${thisk}.timestamp" -ot "$host/$fn.${thisl}.timestamp" \
+		    ]; then
+			set -A stat0 -- $(ls -ndlL "$host/$fn.$thisk")
+			set -A stat1 -- $(ls -ndlL "$host/$fn.$thisl")
 			soff=0
 			case "`uname -s`" in
 			FreeBSD) soff=4;;
-			OpenBSD) soff=3;;
-			*) echo "Unsupported os, please report: `uname -s` $(ls -nlL "$host/$fn.0")";;
+			OpenBSD) soff=4;;
+			*) reportls ;;
 			esac
+			size0=${stat0[${soff}]}
+			size1=${stat1[${soff}]}
+			# verify size0 is a number and greater than zero, or punt
+			if [ $(echo "$size0 > 0"|bc) -eq 0 ]; then
+				reportls
+				soff=0
+			fi
 			# skip calculating size if os not supported
 			if [ soff -ne 0 ]; then
-				size0=${stat0[${soff}]}
-				size1=${stat1[${soff}]}
 				# use 'bc' for math since ksh on all systems does not handle
 				# > 31bit ints, i.e. > 2gb files
 				res=$(echo "$size1 > ($size0 * $factor)"|bc)
 				if [ res -eq 1 ]; then
-					log "forcing level 0.. level 1 > $(echo "$factor*100"|bc)% of level 0"
-					log "level 0 size $size0 bytes"
-					log "level 1 size $size1 bytes"
-					thisl=0
-					torm="${torm} ${fn}.1*"
+					log "forcing level $thisk.. level $thisl > $(echo "$factor*100"|bc)% of level $thisk"
+					thisl=$thisk
+				else
+					log "not forcing level $thisk.. level $thisl <= $(echo "$factor*100"|bc)% of level $thisk"
 				fi
+				log "level $thisk size $size0 bytes"
+				log "level $thisl size $size1 bytes"
 			fi
 		fi
 	else
@@ -588,21 +616,21 @@ do
 		backupmethod 2> "$tmpfile.stderr" | \
 			$aprog -$aopt > "$tmpfile"
 		if [ "$(tail -1 "$tmpfile.stderr" | egrep "$successcookie$" 2> /dev/null)" ] && \
-			! [ "$(tail "$tmpfile.stderr" | egrep -i "Connection reset by peer|Connection timed out|denied|failed|Command not found|Killed |^ssh:.*:Operation timed out" 2> /dev/null)" ]; then
+			! [ "$(tail "$tmpfile.stderr" | egrep -i "Connection reset by peer|Connection timed out| denied|failed|Command not found|Killed |^ssh:.*:Operation timed out" 2> /dev/null)" ]; then
 			rotate "$outfile"
 			mv "$tmpfile" "$outfile" && \
 			mv "$tmpfile.timestamp" "$outfile.timestamp" && \
 			mv "$tmpfile.stderr" "$outfile.stderr" && \
 			listmethod 2> /dev/null | $aprog -$aopt > "$outfile.filelist"
 		else
-			fail=1
+			fail=101
 			let retrycount=retrycount+1
 			[ retrycount -le maxretry ] && log "$f failed, retrying... $retrycount of $maxretry"
 			continue
 		fi
 		if [ "$( tail "$outfile.stderr" | grep "no address associated" )" ]
 		then
-			fail=1
+			fail=102
 			echo "DNS failure for $f, Retrying..."
 			let retrycount=retrycount+1
 			continue
@@ -633,10 +661,11 @@ do
 		summdate="$(date -r $stop +"$datefmt")"
 		_log "$summdate" "Stop  of this level $thisl"
 		savedetails $size $ucsize $f $((stop-start)) $thisl
-		[ "$torm" ] && rm -f -- "$torm"
 	else
 		if [ -f "$tmpfile.stderr" ]; then
 		    {
+			echo "   Fail set to $fail"
+			echo "   Looking for success cookie: $successcookie"
 			echo "   Attempted to write to:"
 			echo "$tmpfile"
 			echo "   Stderr:"
@@ -644,8 +673,17 @@ do
 		    } | bubble >> $logfile
 		fi
 		log "Fail  of this level $thisl"
-		rm -f "$tmpfile"*
-		savedetails -0 -0 $f $((stop-start)) $thisl
+		# If we have no other archive, keep this for later analysis
+		# yes, this will use more disk space on failures, but we want
+		# at least one backup even if it is partial
+		if [ -f "${outfile}" ]; then
+			rm -f "$tmpfile"*
+			savedetails -0 -0 $f $((stop-start)) $thisl
+		else
+			mv "$tmpfile" "${outfile}-failed" && \
+			mv "$tmpfile.timestamp" "${outfile}-failed.timestamp" && \
+			mv "$tmpfile.stderr" "${outfile}-failed.stderr"
+		fi
 	fi
 	trap 'exit 0' 0 1 15
 done 
