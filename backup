@@ -523,6 +523,8 @@ do
 			fi
 			# skip calculating size if os not supported
 			if [ soff -ne 0 ]; then
+				log "level $thisk size $size0 bytes"
+				log "level $thisl size $size1 bytes"
 				# use 'bc' for math since ksh on all systems does not handle
 				# > 31bit ints, i.e. > 2gb files
 				res=$(echo "$size1 > ($size0 * $factor)"|bc)
@@ -532,8 +534,6 @@ do
 				else
 					log "not forcing level $thisk.. level $thisl <= $(echo "$factor*100"|bc)% of level $thisk"
 				fi
-				log "level $thisk size $size0 bytes"
-				log "level $thisl size $size1 bytes"
 			fi
 		fi
 	else
