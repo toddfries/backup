@@ -623,6 +623,12 @@ do
 			mv "$tmpfile.stderr" "$outfile.stderr" && \
 			listmethod 2> /dev/null | $aprog -$aopt > "$outfile.filelist"
 		else
+			if [ "$(tail -2 "$tmpfile.stderr" | grep "session setup failed: NT_STATUS_PASSWORD_EXPIRED")" ]; then
+				fail=103
+				let retrycount=maxretry+1
+				log "password expired, please reset"
+				# XXX implement password reset procedure
+			fi
 			fail=101
 			let retrycount=retrycount+1
 			[ retrycount -le maxretry ] && log "$f failed, retrying... $retrycount of $maxretry"
