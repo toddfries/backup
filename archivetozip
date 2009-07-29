@@ -1,0 +1,158 @@
+#!/usr/bin/perl
+
+# Copyright (c) 2009 Todd T. Fries <todd@fries.net>
+#
+# Permission to use, copy, modify, and distribute this software for any
+# purpose with or without fee is hereby granted, provided that the above
+# copyright notice and this permission notice appear in all copies.
+#
+# THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+# WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+# MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+# ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+# WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+# ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+# OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+
+# The purpose of this script is to recurse under a directory and archive
+# each .bak file to a .zip archive, preserving timestamps, if it is over 24hrs
+# old.  Additionally, if there are more than 4 files in a given directory,
+# prune the filecount back to 4 by removing the oldest files.
+
+use strict;
+use warnings;
+
+use IO::Handle;
+use File::Find;
+use POSIX qw(strftime);
+use File::stat;
+
+# Always use stat(), works properly with afs
+$File::Find::dont_use_nlink=1;
+
+our ($stdout,$stderr,$dir,%dirs);
+
+$stdout = IO::Handle->new_from_fd(1,">>");
+$stderr = IO::Handle->new_from_fd(2,">>");
+
+sub usage {
+	printf $stderr "Usage: $0 dir [ dir2 [ dir3 [ .. ] ] ]\n";
+	$stderr->flush;
+}
+my ($time)=time();
+while (my $dir = shift @ARGV) {
+	if (-d $dir) {
+		searchdir($dir);
+	} else {
+		if (-f $dir) {
+			compfile($dir,$dir);
+		}
+	}
+}
+foreach $dir ((keys %dirs)) {
+	printf "%s has %d files\n",$dir,$dirs{$dir};
+	if ($dirs{$dir} > 5) {
+		prunedir($dir);
+	}
+}
+printf "\nExecution took %d seconds\n",time()-$time;
+exit(0);
+
+sub searchdir {
+	my ($dir) = @_;
+	#printf "Searching %s\n",$dir;
+	find(\&search,$dir);
+}
+
+sub search {
+	my $dir = $File::Find::dir;
+	my $file = $_;
+	my $pfile = $dir."/".$file;
+
+	if (-d $file) {
+		#printf "Skipping %s, isdir\n",$pfile;
+		return;
+	}
+	if (-l $file) {
+		#printf "Skipping %s, islink\n",$pfile;
+		return;
+	}
+	if (! -f $file) {
+		#printf "Skipping %s, !isreg\n",$pfile;
+		return;
+	}
+	if ($file =~ m/\.zip$/) {
+		if (!defined($dirs{$dir})) {
+			$dirs{$dir}=0;
+		}
+		$dirs{$dir}++;
+	}
+	if ($file =~ m/\.bak$/) {
+		if (!defined($dirs{$dir})) {
+			$dirs{$dir}=0;
+		}
+		$dirs{$dir}++;
+		compfile($pfile,$file);
+	}
+}
+
+sub compfile {
+	my ($pfile,$file) = @_;
+	my $scmd = "";
+	my $found = 0;
+	my $base = "";
+
+	#printf "Compressing %s\n",$pfile;
+	if ($file =~ m/^(.*)\.bak$/) {
+		$base=$1;
+		$scmd = "/usr/local/bin/zip -9r \"${base}\".zip \"${file}\" && rm \"${file}\" ";
+	}
+	if (! $scmd) {
+		return;
+	}
+	my $sb = stat($file);
+	my $now = strftime("%s",localtime);
+	if ( $sb->mtime < ($now-60*60*24) ) {
+		#printf $stderr "%d(mtime) < %d(now-60*60*24)\n",$mtime,($now-60*60*24);
+		printf $stderr "System(%s)\n",$scmd;
+		system($scmd);
+		utime($sb->atime,$sb->mtime,$base.".zip");
+	}
+}
+
+sub prunedir {
+	my ($dir) = @_;
+	my ($time) = time();
+	my $file;
+	my %files;
+
+	if (! opendir(DIR, $dir)) {
+		printf $stderr "can't opendir $dir: $!";
+		return;
+	}
+	foreach $file (grep { /^[^\.]/ && -f "$dir/$_" } readdir(DIR)) {
+		my $sb = stat($dir."/".$file);
+		# Nuke 0 byte files older than 24hrs
+		if ($sb->size == 0 && $sb->mtime < ($time-86400)) {
+			unlink($file);
+			next;
+		}
+		$files{$file}=$sb->mtime;
+	}
+	closedir(DIR);
+	my @sorted = sort { $files{$b} <=> $files{$a} } keys %files;
+	printf "Sorted filelist for %s:\n",$dir;
+	foreach $file (@sorted) {
+		printf "%s %s\n",strftime("%a %b %e %H:%M:%S %Y",localtime($files{$file})),$file;
+	}
+	my $i = $#sorted - 3;
+	while ($i-- > 0) {
+		$file = pop(@sorted);
+		printf "Removing %s\n",$file;
+		unlink($dir."/".$file);
+	}
+	printf "Pruned filelist for %s:\n",$dir;
+	foreach $file (@sorted) {
+		printf "%s %s\n",strftime("%a %b %e %H:%M:%S %Y",localtime($files{$file})),$file;
+	}
+}
