@@ -323,14 +323,34 @@ do
 		[ "$smbsubdir" ] || smbsubdir="/"
 		#echo "host=\"$host\" smbshare=\"$smbshare\" subdir=\"$smbsubdir\""
 		backupmethod() {
-			echo "smbclient -d2 -E -A$auth \"//$host/$smbshare\" -D \"$smbsubdir\" -c 'tarmode full' -Tc$nopt \"$nfil\" -" > /dev/stderr
-			if [ "$nfil" ]; then
+			local retry="yes" retrycount=0
+			tmpsmb=`mktemp /tmp/.smb.XXXXXXXXXX`
+			while "$retry" -a retrycount -lt 2 ]; do
+			  : > $tmpsmb
+			  echo "smbclient -d2 -E -A$auth \"//$host/$smbshare\" -D \"$smbsubdir\" -c 'tarmode full' -Tc$nopt \"$nfil\" -" > $tmpsmb
+			  if [ "$nfil" ]; then
 				$smbclient -d2 -E -A$auth "//$host/$smbshare" -D "$smbsubdir" \
-					-c 'tarmode full' -Tc$nopt "$nfil" - && echo "$successcookie" > /dev/stderr || echo "returned $?" > /dev/stderr
-			else
+					-c 'tarmode full' -Tc$nopt "$nfil" - && echo "$successcookie" > $tmpsmb || echo "returned $?" > $tmpsmb
+			  else
 				$smbclient -d2 -E -A$auth "//$host/$smbshare" -D "$smbsubdir" \
-					-c 'tarmode full' -Tc  - && echo "$successcookie" > /dev/stderr || echo "returned $?" > /dev/stderr
-			fi
+					-c 'tarmode full' -Tc  - && echo "$successcookie" > $tmpsmb || echo "returned $?" > $tmpsmb
+			  fi
+			  if tail -3 $tmpsmb | egrep "NT_STATUS_(PASSWORD_EXPIRED|LOGIN_FAILURE)" > /dev/null 2>&1; then
+				if [ -x $pwgen ]; then
+					cat $tmpsmb > /dev/stderr
+					oldpass=$(awk '/^password/{print $3}' $auth | tail -1)
+					newpass=$(pwgen -N 1 -s 32)
+					smbuser=$(awk '/^username/{print $3}' $auth)
+					echo "$oldpass\n$newpass\n$newpass" | $smbpasswd -r $smbhost -U$smbuser -s > $tmpsmb 2>&1
+					if grep "^Password changed for user" $tmpsmb > /dev/null; then
+						retry=""
+						echo "password = $newpass" >> $auth
+					fi
+				fi
+			  fi
+			  cat $tmpsmb > /dev/stderr
+			  let retrycount=retrycount+1
+			done
 		}
 		listmethod() {
 			tar tvzf "$outfile" | \
