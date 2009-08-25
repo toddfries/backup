@@ -1,6 +1,6 @@
 #!/bin/ksh
 
-# Copyright (c) 2001-2008 Todd T. Fries <todd@fries.net>
+# Copyright (c) 2001-2009 Todd T. Fries <todd@fries.net>
 #
 # Permission to use, copy, modify, and distribute this software for any
 # purpose with or without fee is hereby granted, provided that the above
@@ -231,7 +231,23 @@ reportls() {
 	log "Unsupported os, please report: os(`uname -s`) $statstr"
 }
 
+sshcmdline() {
+	local scmd="ssh $sshxtra -C " user="$1" host="$2"
+	if [ -f $bkd/${host}_sshconfig ]; then
+		scmd="$scmd -F $bkd/${host}_config "
+	fi
+	scmd="$scmd -i $bkd/${host}_sshkey "
+	if [ "$user" -a "$host" ]; then
+		scmd="$scmd $user@$host "
+	elsif [ "$host" ]; then
+		scmd="$scmd $host "
+	fi
+	echo "$scmd"
+}
+
 smbclient=/usr/local/bin/smbclient
+smbpasswd=/usr/local/bin/smbpasswd
+pwgen=/usr/local/bin/pwgen
 
 if [ rsynconly -eq 0 ]; then
 for f in $(sed 's/#.*$//;/^$/d' $bkd/dumplist)
@@ -246,17 +262,15 @@ do
 		smbshare="$(echo "$smbshare"|sed 's/%SPACE%/ /g')"
 		f="${sshhost}-${smbhost}_${smbshare}"
 		backupmethod() {
-			scmd="ssh $sshxtra -C "
-			if [ -f $bkd/${sshhost}_sshconfig ]; then
-				scmd="$scmd -F $bkd/${sshhost}_sshconfig "
-			fi
-			authkey=$bkd/${sshhost}_sshkey
-			scmd="$scmd -i $authkey "
-			scmd="$scmd $sshuser@$sshhost "
+			local retry="yes" retrycount=0
+			tmpsmb=`mktemp /tmp/.sshsmb.XXXXXXXXXX`
+			scmd=$(sshcmdline $sshuser $sshhost)
+			while [ "$retry" -a retrycount -lt 2 ]; do 
+			  : > $tmpsmb
 
-			cmd="$smbclient -d2 -E -A%s //$smbhost/$smbshare -D / -c 'tarmode full' -Tc%s %s -"
-			echo "$cmd" $auth $nopt "$nfil" > /dev/stderr
-			{
+			  cmd="$smbclient -d2 -E -A%s //$smbhost/$smbshare -D / -c 'tarmode full' -Tc%s %s -"
+			  echo "$cmd" $auth $nopt "$nfil" >> $tmpsmb
+			  {
 				echo "d=\$(mktemp -d /tmp/.smbbackup.XXXXXXXXXX)"
 				echo "cd \$d"
 				if [ "$nfil" ]; then
@@ -270,8 +284,24 @@ do
 				echo EOF
 				printf "$cmd" smbauth $nopt $smbfile
 				#echo "rm -rf \$d"
-			} | $scmd sh && echo "$successcookie" > /dev/stderr || \
-			echo "returned $?" > /dev/stderr
+			  } | $scmd sh && echo "$successcookie" >> $tmpsmb || \
+			  echo "returned $?" >> $tmpsmb
+			  if tail -3 $tmpsmb | egrep "NT_STATUS_(PASSWORD_EXPIRED|LOGIN_FAILURE)" > /dev/null 2>&1; then
+				if [ -x $pwgen ]; then
+					cat $tmpsmb > /dev/stderr
+					oldpass=$(awk '/^password/{print $3}' $auth | tail -1)
+					newpass=$(pwgen -N 1 -s 32)
+					smbuser=$(awk '/^username/{print $3}' $auth)
+					echo "$oldpass\n$newpass\n$newpass" | $scmd $smbpasswd -r $smbhost -U$smbuser -s > $tmpsmb 2>&1
+					if grep "^Password changed for user" $tmpsmb > /dev/null; then
+						retry=""
+						echo "password = $newpass" >> $auth
+					fi
+				fi
+			  fi
+			  cat $tmpsmb > /dev/stderr
+			  let retrycount=retrycount+1
+			done
 		}
 		listmethod() {
 			tar tvzf "$outfile" | \
@@ -348,18 +378,12 @@ do
 	sshtar*) # sshtar://host/sub/dir/or/device
 		method=sshtar
 		host=$(echo "$f" | sed 's,sshtar://.*@\([^/]*\)/.*$,\1,')
-		authkey=$bkd/${host}_sshkey
 		authuser=$(echo "$f" | sed 's,sshtar://\(.*\)@.*$,\1,')
 		file=$(echo "$f" | sed 's,sshtar://.*@[^/]*\(/.*\)$,\1,')
 		f="$host:$file"
 		backupmethod() {
 			#set -x
-			cmd="ssh $sshxtra -C "
-			if [ -f $bkd/${host}_sshconfig ]; then
-				cmd="$cmd -F $bkd/${host}_sshconfig "
-			fi
-			cmd="$cmd -i $authkey "
-			cmd="$cmd $authuser@$host "
+			cmd=$(sshcmdline $authuser $host)
 			# would like -O but FreeBSD doesn't have it, bah
 			cmd="$cmd sh -c \"cd $file;pax -Xwv "
 			if [ "$nfil" ]; then
@@ -410,17 +434,11 @@ do
 	sshbackup*) # sshbackup://user@host/sub/dir/or/device
 		method=sshbackup
 		host=$(echo "$f" | sed 's,sshbackup://.*@\([^/]*\)/.*$,\1,')
-		authkey=$bkd/${host}_sshkey
 		authuser=$(echo "$f" | sed 's,sshbackup://\(.*\)@.*$,\1,')
 		file=$(echo "$f" | sed 's,sshbackup://.*@[^/]*\(/.*\)$,\1,')
 		f="$host:$file"
 		backupmethod() {
-			cmd="ssh $sshxtra -C "
-			if [ -f $bkd/${host}_sshconfig ]; then
-				cmd="$cmd -F $bkd/${host}_sshconfig "
-			fi
-			cmd="$cmd -i $authkey "
-			cmd="$cmd $authuser@$host "
+			cmd=$(sshcmdline $authuser $host)
 			cmd="$cmd /usr/sbin/backup -${thisl}uf - $file "
 			echo "$cmd" > /dev/stderr
 			#set -x
@@ -436,18 +454,12 @@ do
 	sshdump*) # sshdump://user@host/sub/dir/or/device
 		method=sshdump
 		host=$(echo "$f" | sed 's,sshdump://.*@\([^/]*\)/.*$,\1,')
-		authkey=$bkd/${host}_sshkey
 		authuser=$(echo "$f" | sed 's,sshdump://\(.*\)@.*$,\1,')
 		file=$(echo "$f" | sed 's,sshdump://.*@[^/]*\(/.*\)$,\1,')
 		f="$host:$file"
 		backupmethod() {
 			local time="" timecmd="-a"
-			cmd="ssh $sshxtra -C "
-			if [ -f $bkd/${host}_sshconfig ]; then
-				cmd="$cmd -F $bkd/${host}_sshconfig "
-			fi
-			cmd="$cmd -i $authkey "
-			cmd="$cmd $authuser@$host "
+			cmd=$(sshcmdline $authuser $host)
 			cmd="$cmd /sbin/dump -h 0 "
 			if [ "$nfil" ]; then
 				time="-T "
@@ -467,17 +479,11 @@ do
 	sshafs*) # sshafs://user@host/afsvolume
 		method=sshafs
 		host=$(echo "$f" | sed 's,sshafs://.*@\([^/]*\)/.*$,\1,')
-		authkey=$bkd/${host}_sshkey
 		authuser=$(echo "$f" | sed 's,sshafs://\(.*\)@.*$,\1,')
 		vol=$(echo "$f" | sed 's,sshafs://.*@[^/]*/\(.*\)$,\1,')
 		f="$host:$vol"
 		backupmethod() {
-			cmd="ssh $sshxtra -C "
-			if [ -f $bkd/${host}_sshconfig ]; then
-				cmd="$cmd -F $bkd/${host}_sshconfig "
-			fi
-			cmd="$cmd -i $authkey "
-			cmd="$cmd $authuser@$host "
+			cmd=$(sshcmdline $authuser $host)
 			cmd="$cmd /usr/local/sbin/vos "
 			$cmd backup $vol -localauth || return
 			cmd="$cmd dump ${vol}.backup "
@@ -713,13 +719,7 @@ if [ "$remotemirror" ]; then
 		tmpfile=$(mktemp $datadir/.ssh.XXXXXXXXXXX)
 		{
 			echo "#!/bin/sh" 
-			echo -n "ssh $sshxtra "
-			if [ -f $bkd/${host}_sshkey ]; then
-				echo -n "-i $bkd/${host}_sshkey "
-			fi
-			if [ -f $bkd/${host}_sshconfig ]; then
-				echo -n "-F $bkd/${host}_sshconfig "
-			fi
+			echo -n "$(sshcmdline) "
 			echo "\"\$@\""
 		} > $tmpfile
 		chmod 755 $tmpfile
