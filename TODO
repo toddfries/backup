@@ -9,12 +9,7 @@
    02/06/2008 13:51:08 CST uncomp. 0.00GB/s vs comp. 0.00GB/s
    02/06/2008 13:51:08 CST comp. 95.82%, ratio 4.18%
 - automate samba password reset procedure
-  smbpasswd -r servername -Uusername
-  Old SMB password:
-  New SMB password:
-  Retype new SMB password:
-  Password changed for user username
-
+  echo "$oldpass\n$newpass\n$newpass" | smbpasswd -r servername -Uusername -s
 - handle 'session setup failed: NT_STATUS_PASSWORD_EXPIRED'
 
 
