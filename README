@@ -1,6 +1,7 @@
 Requirements:
 
-	dump, gzip, stat, restore, bc, ssh and optionally smbclient
+	dump, gzip, stat, restore, bc, ssh
+	optionally smbclient, openafs, lzma
 
 To setup this backup script, decide on a name for the collection of
 backups to run together as well as the directory backups should be
