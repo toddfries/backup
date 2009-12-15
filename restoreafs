@@ -1,0 +1,46 @@
+#!/bin/sh
+
+# Copyright (c) 2009 Todd T. Fries <todd@fries.net>
+#
+# Permission to use, copy, modify, and distribute this software for any
+# purpose with or without fee is hereby granted, provided that the above
+# copyright notice and this permission notice appear in all copies.
+#
+# THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+# WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+# MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+# ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+# WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+# ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+# OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+
+server="10.0.0.10"
+volume="/vicepa"
+
+while [ "$1" ]; do
+	case "$1" in
+	-server) server="$2";shift;shift;;
+	-volume) volume="$2";shift;shift;;
+	*) break;;
+	esac
+done
+
+file="$1"
+if [ "$2" ]; then
+	newvol="$2"
+else
+	newvol="rest.$(date +%s).$$"
+fi
+
+case "$(file $file)" in
+*gzip*compressed*data*) gz="gzip";;
+*) gz="lzma";;
+esac
+
+bs=$($gz -d < "$file" | head -1 | wc -c)
+let bs=bs+0
+echo "fs mkm $file $newvol"
+
+$gz -d < "$file" | dd bs=$bs skip=1 | \
+	/usr/local/sbin/vos restore -server $server -partition $volume -name $newvol -readonly -creation new -verbose
+
