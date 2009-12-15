@@ -51,10 +51,14 @@
 - implement archiving to tape or other storage, e.g. epitome
 - update sshsmb to match smb regarding smbshare/smbdir
 - write recover script to restore data
+  - for 'vos dump' output, there is one line of text to remove, something like
+     this:
+       lzma -d < $file | dd bs=$(head -1 $file | wc -c) skip=1 | ...
+    
 
 - ability to backup databases (PostgreSQL, MySQL, etc)
 
-As spoken to a big chemical client:
+As spoken to a client:
  - the ability to set a parallel variable per host and per backup system,
    to backup multiple systems simultaneously; serially backing up systems
    when one system hangs (i.e. dump -L on FreeBSD) does not let things
