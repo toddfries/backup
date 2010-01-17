@@ -471,6 +471,44 @@ do
 						{print}'
 		}
 	;;
+	sshbackname*) # sshbackname://user@host/sub/dir
+		method=sshbackname
+		host=$(echo "$f" | sed 's,sshbackname://.*@\([^/]*\)/.*$,\1,')
+		authuser=$(echo "$f" | sed 's,sshbackname://\(.*\)@.*$,\1,')
+		file=$(echo "$f" | sed 's,sshbackname://.*@[^/]*\(/.*\)$,\1,')
+		f="$host:$file"
+		backupmethod() {
+			local retry="yes" retrycount=0
+			tmpbn=`mktemp /tmp/.sshbn.XXXXXXXXXX`
+			scmd=$(sshcmdline $sshuser $sshhost)
+			while [ "$retry" -a retrycount -lt 2 ]; do 
+			  : > $tmpbn
+
+			  cmd="cd $file && find . -print %s | /usr/sbin/backup -iof - "
+			  echo "$cmd" $auth $nopt "$nfil" >> $tmpbn
+			  {
+				echo "d=\$(mktemp -d /tmp/.bnbackup.XXXXXXXXXX)"
+				if [ "$nfil" ]; then
+					echo "touch -t \"$(date -r $nfiltime +"%Y%m%d%H%M.%S")\" \$d/timestamp"
+					bnfile="-newer \$d/timestamp"
+				else
+					bnfile=""
+				fi
+				printf "$cmd\n" "$bnfile"
+				#echo "rm -rf \$d"
+			  } | $scmd sh && echo "$successcookie" >> $tmpbn || \
+			  echo "returned $?" >> $tmpbn
+			  cat $tmpbn > /dev/stderr
+			  let retrycount=retrycount+1
+			done
+		}
+		listmethod() {
+			$aprog -d < "$outfile" | restore -tvyf - | \
+				awk '	/^dir/	{next} \
+					/leaf/	{ $1="";print} \
+						{print}'
+		}
+	;;
 	sshdump*) # sshdump://user@host/sub/dir/or/device
 		method=sshdump
 		host=$(echo "$f" | sed 's,sshdump://.*@\([^/]*\)/.*$,\1,')
