@@ -412,7 +412,7 @@ do
 			printf "authuser=$authuser nopt=$nopt nfil=$nfil\n" > /dev/stderr
 			printf "Command: " > /dev/stderr
 			{
-				echo "d=/tmp/.bnbackup.$$.$RANDOM$RANDOM$RANDOM"
+				echo "d=/tmp/.sshtar.$$.$RANDOM$RANDOM$RANDOM"
 				echo "mkdir \$d"
 				if [ "$nfil" ]; then
 					echo "touch -t \"$(date -r $nfiltime +"%Y%m%d%H%M.%S")\" \$d/timestamp"
@@ -424,15 +424,15 @@ do
 				echo "  dir=\"$file\"; path=.; [ -d \"\$dir\" ] || exit 1"
 				echo "else"
 				echo "  dir=\$(dirname \"$file\") path=\$(basename \"$file\")"
-				echo "  [ -d \"\$dir\" -a -f \"\$path\" ] || exit 1"
+				echo "  [ -d \"\$dir\" -a -f \"\$dir/\$path\" ] || exit 1"
 				echo "fi"
-				echo \"echo "dir=\$dir path=\$path\" 1>&2"
+				echo "echo \"dir=\$dir path=\$path\" 1>&2"
 				printf "$cmd\n" "$bnfile" | tee /dev/stderr
 				echo "cd \"\$dir\" && find \"\$path\" -xdev -print | { f=0; d=0; echo startlist...; while read name; do if [ -d \"\$name\" ]; then let d=d+1; echo \"d \$name\"; else let f=f+1; echo \"f \$name\"; fi; done; echo \"stoplist... \$d dirs, \$f files\"; } 1>&2"
 				#echo "rm -rf \$d"
 			} | $scmd sh && \
-				echo "$successcookie" > /dev/stderr || \
-				echo "returned $?" > /dev/stderr
+			    echo "$successcookie" > /dev/stderr || \
+			    echo "returned $?" > /dev/stderr
 		}
 		listmethod() {
 			$aprog -d < "$outfile" | tar -tvf - | \
@@ -505,7 +505,7 @@ do
 			while [ "$retry" -a retrycount -lt 2 ]; do 
 			  : > $tmpbn
 
-			  cmd="[ -d \"$file\" ] && cd $file && find . -xdev -print %s | tee \$d/list | /usr/sbin/backup -ivf -"
+			  cmd="[ -d \"$file\" ] && cd $file && find . -xdev %s -print | tee \$d/list | /usr/sbin/backup -ivf -"
 			  printf "auth=$auth nopt=$nopt nfil=$nfil\nCommand: " >> $tmpbn
 			  {
 				echo "d=/tmp/.bnbackup.$$.$RANDOM$RANDOM$RANDOM;mkdir \$d"
@@ -635,7 +635,7 @@ do
 	tmp=-1
 	nopt=""
 	nfil=""
-	nfiltime=""
+	nfiltime="0"
 	#echo "$f calculating level: req/high/tmp = $thisl/$high/$tmp"
 	case $((thisl+0)) in
 	0)
