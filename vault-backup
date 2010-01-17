@@ -234,7 +234,7 @@ reportls() {
 sshcmdline() {
 	local scmd="ssh $sshxtra -C " user="$1" host="$2"
 	if [ -f $bkd/${host}_sshconfig ]; then
-		scmd="$scmd -F $bkd/${host}_config "
+		scmd="$scmd -F $bkd/${host}_sshconfig "
 	fi
 	scmd="$scmd -i $bkd/${host}_sshkey "
 	if [ "$user" -a "$host" ]; then
