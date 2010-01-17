@@ -239,9 +239,9 @@ sshcmdline() {
 	scmd="$scmd -i $bkd/${host}_sshkey "
 	if [ "$user" -a "$host" ]; then
 		scmd="$scmd $user@$host "
-	elsif [ "$host" ]; then
+	else if [ "$host" ]; then
 		scmd="$scmd $host "
-	fi
+	fi; fi
 	echo "$scmd"
 }
 
@@ -298,6 +298,9 @@ do
 						echo "password = $newpass" >> $auth
 					fi
 				fi
+			  else
+				# if no errors detected.. don't retry
+				retry=""
 			  fi
 			  cat $tmpsmb > /dev/stderr
 			  let retrycount=retrycount+1
@@ -480,24 +483,28 @@ do
 		backupmethod() {
 			local retry="yes" retrycount=0
 			tmpbn=`mktemp /tmp/.sshbn.XXXXXXXXXX`
-			scmd=$(sshcmdline $sshuser $sshhost)
+			scmd=$(sshcmdline $authuser $host)
 			while [ "$retry" -a retrycount -lt 2 ]; do 
 			  : > $tmpbn
 
-			  cmd="cd $file && find . -print %s | /usr/sbin/backup -iof - "
-			  echo "$cmd" $auth $nopt "$nfil" >> $tmpbn
+			  cmd="[ -d \"$file\" ] && cd $file && find . -xdev -print %s | tee \$d/list | /usr/sbin/backup -ivf -"
+			  printf "auth=$auth nopt=$nopt nfil=$nfil\nCommand: " >> $tmpbn
 			  {
-				echo "d=\$(mktemp -d /tmp/.bnbackup.XXXXXXXXXX)"
+				echo "d=/tmp/.bnbackup.$$.$RANDOM$RANDOM$RANDOM;mkdir \$d"
 				if [ "$nfil" ]; then
 					echo "touch -t \"$(date -r $nfiltime +"%Y%m%d%H%M.%S")\" \$d/timestamp"
 					bnfile="-newer \$d/timestamp"
 				else
 					bnfile=""
 				fi
-				printf "$cmd\n" "$bnfile"
+				printf "$cmd\n" "$bnfile" | tee -a $tmpbn
+				echo "echo Files:\$d 1>&2"
+				echo "cat \$d/list 1>&2"
 				#echo "rm -rf \$d"
 			  } | $scmd sh && echo "$successcookie" >> $tmpbn || \
 			  echo "returned $?" >> $tmpbn
+			  # if no reason to retry exists, no need for the while loop
+			  retry=""
 			  cat $tmpbn > /dev/stderr
 			  let retrycount=retrycount+1
 			done
