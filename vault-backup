@@ -406,15 +406,33 @@ do
 		f="$host:$file"
 		backupmethod() {
 			#set -x
-			cmd=$(sshcmdline $authuser $host)
+			scmd=$(sshcmdline $authuser $host)
 			# would like -O but FreeBSD doesn't have it, bah
-			cmd="$cmd sh -c \"cd $file;pax -Xwv "
-			if [ "$nfil" ]; then
-				cmd="$cmd -T $(date -r $nfiltime +"%y%m%d%H%M.%S") "
-			fi
-			cmd="$cmd .\""
-			echo "$cmd $file" > /dev/stderr
-			$cmd && echo "$successcookie" > /dev/stderr || echo "returned $?" > /dev/stderr
+			cmd="cd "\$dir" && find \"\$path\" -xdev %s -print | pax -wdv || exit 1"
+			printf "authuser=$authuser nopt=$nopt nfil=$nfil\n" > /dev/stderr
+			printf "Command: " > /dev/stderr
+			{
+				echo "d=/tmp/.bnbackup.$$.$RANDOM$RANDOM$RANDOM"
+				echo "mkdir \$d"
+				if [ "$nfil" ]; then
+					echo "touch -t \"$(date -r $nfiltime +"%Y%m%d%H%M.%S")\" \$d/timestamp"
+					bnfile="-newer \$d/timestamp"
+				else
+					bnfile=""
+				fi
+				echo "if [ -d \"$file\" ]; then"
+				echo "  dir=\"$file\"; path=.; [ -d \"\$dir\" ] || exit 1"
+				echo "else"
+				echo "  dir=\$(dirname \"$file\") path=\$(basename \"$file\")"
+				echo "  [ -d \"\$dir\" -a -f \"\$path\" ] || exit 1"
+				echo "fi"
+				echo \"echo "dir=\$dir path=\$path\" 1>&2"
+				printf "$cmd\n" "$bnfile" | tee /dev/stderr
+				echo "cd \"\$dir\" && find \"\$path\" -xdev -print | { f=0; d=0; echo startlist...; while read name; do if [ -d \"\$name\" ]; then let d=d+1; echo \"d \$name\"; else let f=f+1; echo \"f \$name\"; fi; done; echo \"stoplist... \$d dirs, \$f files\"; } 1>&2"
+				#echo "rm -rf \$d"
+			} | $scmd sh && \
+				echo "$successcookie" > /dev/stderr || \
+				echo "returned $?" > /dev/stderr
 		}
 		listmethod() {
 			$aprog -d < "$outfile" | tar -tvf - | \
