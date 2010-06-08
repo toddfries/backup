@@ -534,6 +534,36 @@ do
 						{print}'
 		}
 	;;
+	sshgpgdump*) # sshgpgdump://user@host/sub/dir/or/device
+		method=sshgpgdump
+		host=$(echo "$f" | sed 's,sshdump://.*@\([^/]*\)/.*$,\1,')
+		authuser=$(echo "$f" | sed 's,sshdump://\(.*\)@.*$,\1,')
+		file=$(echo "$f" | sed 's,sshdump://.*@[^/]*\(/.*\)$,\1,')
+		f="$host:$file"
+		backupmethod() {
+			local time="" timecmd="-a" cmd cmd2
+			cmd=$(sshcmdline $authuser $host)
+			{
+				
+				echo " /sbin/dump -h 0 "
+				if [ "$nfil" ]; then
+					time="-T "
+					timecmd="$(date -r $nfiltime +"%a %b %e %H:%M:%S %Y")"
+				fi
+				args="-0a -f - $file"
+				echo " /sbin/dump -h 0 $time $timecmd $args" > /dev/stderr
+				echo "$time '$timecmd' $args | $aprog -7 | gpg -e -r todd@fries.net -z 0 "
+			} | $cmd sh && echo "$successcookie" > /dev/stderr || echo "returned $?" > /dev/stderr
+			# XXX 1. create tempdir on remote system
+			# XXX 2. copy gpg key
+			# XXX 3. save listing output remotely
+			# XXX 4. xfer listing output from remote system ?separately?
+			# XXX ?? needs perl and pipes etc ??
+		}
+		listmethod() {
+			echo "No listing for sshgpgdump implemented yet"
+		}
+	;;
 	sshdump*) # sshdump://user@host/sub/dir/or/device
 		method=sshdump
 		host=$(echo "$f" | sed 's,sshdump://.*@\([^/]*\)/.*$,\1,')
