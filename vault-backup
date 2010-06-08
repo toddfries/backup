@@ -536,10 +536,11 @@ do
 	;;
 	sshgpgdump*) # sshgpgdump://user@host/sub/dir/or/device
 		method=sshgpgdump
-		host=$(echo "$f" | sed 's,sshdump://.*@\([^/]*\)/.*$,\1,')
-		authuser=$(echo "$f" | sed 's,sshdump://\(.*\)@.*$,\1,')
-		file=$(echo "$f" | sed 's,sshdump://.*@[^/]*\(/.*\)$,\1,')
+		host=$(echo "$f" | sed 's,sshgpgdump://.*@\([^/]*\)/.*$,\1,')
+		authuser=$(echo "$f" | sed 's,sshgpgdump://\(.*\)@.*$,\1,')
+		file=$(echo "$f" | sed 's,sshgpgdump://.*@[^/]*\(/.*\)$,\1,')
 		f="$host:$file"
+		echo "host=$host authouser=$authuser file=$file f=$f" > /dev/tty
 		backupmethod() {
 			local time="" timecmd="-a" cmd cmd2
 			cmd=$(sshcmdline $authuser $host)
@@ -552,6 +553,7 @@ do
 				fi
 				args="-0a -f - $file"
 				echo " /sbin/dump -h 0 $time $timecmd $args" > /dev/stderr
+				echo " cmd=$cmd" > /dev/stderr
 				echo "$time '$timecmd' $args | $aprog -7 | gpg -e -r todd@fries.net -z 0 "
 			} | $cmd sh && echo "$successcookie" > /dev/stderr || echo "returned $?" > /dev/stderr
 			# XXX 1. create tempdir on remote system
