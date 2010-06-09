@@ -569,7 +569,7 @@ do
 			cmd=$(sshcmdline $authuser $host)
 			{
 				
-				echo " /sbin/dump -h 0 "
+				echo "id > /dev/stderr"
 				if [ "$nfil" ]; then
 					time="-T "
 					timecmd="$(date -r $nfiltime +"%a %b %e %H:%M:%S %Y")"
@@ -577,7 +577,7 @@ do
 				args="-0a -f - $file"
 				echo " /sbin/dump -h 0 $time $timecmd $args" > /dev/stderr
 				echo " cmd=$cmd" > /dev/stderr
-				echo "$time '$timecmd' $args | $aprog -7 | gpg -e -r todd@fries.net -z 0 "
+				echo "/sbin/dump -h 0 $time '$timecmd' $args | $aprog -7 | gpg -e -r todd@fries.net -z 0"
 			} | $cmd sh && echo "$successcookie" > /dev/stderr || echo "returned $?" > /dev/stderr
 			# XXX 1. create tempdir on remote system
 			# XXX 2. copy gpg key
@@ -758,6 +758,7 @@ do
 	while [ retrycount -le maxretry ]; do
 		fail=0
 		if [ stderrpid -gt 0 ]; then
+			sleep 1
 			kill $stderrpid
 		fi
 		stderrpid=0
@@ -796,6 +797,7 @@ do
 		break
 	done
 	if [ stderrpid -gt 0 ]; then
+		sleep 1
 		kill $stderrpid
 	fi
 	stop=$(date +%s)
@@ -905,5 +907,6 @@ if [ "$notifydetail" ]; then
 	} | mail -s "backup: $setname $tsize ${globaltime}s (detailed)" $notifydetail
 fi
 if [ tailpid -gt 0 ]; then
+	sleep 1
 	kill $tailpid
 fi
