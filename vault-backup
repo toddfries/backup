@@ -755,6 +755,7 @@ do
 	#echo "$tmpfile"
 	#set -x
 	trap 'rm -f ${tmpfile}*; exit 1' 0 1 15
+	stderrpid=0
 	while [ retrycount -le maxretry ]; do
 		fail=0
 		if [ stderrpid -gt 0 ]; then
