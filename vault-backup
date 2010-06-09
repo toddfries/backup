@@ -33,6 +33,11 @@ if ! [ "$setname" ]; then
 	echo "Usage: $0 backupsetname"
 	exit 2
 fi
+dumplistname="dumplist"
+if [ "$2" ]; then
+	dumplistname="$2"
+fi
+
 
 # Tower of Hanoi
 # 0 2 1 4 3 6 5 8 7 8 9 <-- backup level
@@ -77,8 +82,8 @@ if ! [ -d "$bkd" ]; then
 	echo "$bkd directory does not exist!"
 	exit 3
 fi
-if ! [ -f "$bkd/dumplist" ]; then
-	echo "$bkd/dumplist file does not exist!"
+if ! [ -f "$bkd/$dumplistname" ]; then
+	echo "$bkd/$dumplistname file does not exist!"
 	exit 4
 fi
 if [ -f "$bkd/conf" ]; then
@@ -250,7 +255,7 @@ smbpasswd=/usr/local/bin/smbpasswd
 pwgen=/usr/local/bin/pwgen
 
 if [ rsynconly -eq 0 ]; then
-for f in $(sed 's/#.*$//;/^$/d' $bkd/dumplist)
+for f in $(sed 's/#.*$//;/^$/d' $bkd/$dumplistname)
 do
 	thisl=$l
 	case "$f" in
