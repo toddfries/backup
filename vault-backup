@@ -20,13 +20,26 @@ if [ "$user" != "_backup" ]; then
 	exit 1
 fi
 
-if [ "$1" = "-r" ]; then
-	# rsync only run
-	shift
-	rsynconly=1
-else
-	rsynconly=0
-fi
+rsynconly=0
+verbose=0
+while [ "$1" ]
+do
+	case "$1" in
+	-r)
+		# rsync only run
+		rsynconly=1
+		shift
+	;;
+	-v)
+		# verbose, in this case, output details to tty
+		let verbose=verbose+1
+		shift
+	;;
+	*)
+		break
+	;;
+	esac
+done
 
 setname="$1"
 if ! [ "$setname" ]; then
@@ -188,7 +201,12 @@ log() {
 }
 
 globalstart=$(date +%s)
-_log "$(date -r $globalstart +"$datefmt")" "pid $$: backup of $@ set starting"
+_log "$(date -r $globalstart +"$datefmt")" "pid $$: backup of $bkd/$dumplistname list starting"
+tailpid=0
+if ! [ verbose -eq 0 ]; then
+	echo "verbose=$verbose" > /dev/tty
+	tail -f "$logfile" > /dev/tty & tailpid=$!
+fi
 
 dayofweek=$(date +%w)
 l=${levels[$dayofweek]}
@@ -739,6 +757,14 @@ do
 	trap 'rm -f ${tmpfile}*; exit 1' 0 1 15
 	while [ retrycount -le maxretry ]; do
 		fail=0
+		if [ stderrpid -gt 0 ]; then
+			kill $stderrpid
+		fi
+		stderrpid=0
+		if [ verbose -gt 1 ]; then
+			:> "$tmpfile.stderr"
+			tail -f "$tmpfile.stderr" > /dev/tty & stderrpid=$!
+		fi
 		backupmethod 2> "$tmpfile.stderr" | \
 			$aprog -$aopt > "$tmpfile"
 		if [ "$(tail -1 "$tmpfile.stderr" | egrep "$successcookie$" 2> /dev/null)" ] && \
@@ -769,6 +795,9 @@ do
 		fi
 		break
 	done
+	if [ stderrpid -gt 0 ]; then
+		kill $stderrpid
+	fi
 	stop=$(date +%s)
 
 	if [ -f "$outfile.stderr" -a fail -eq 0 ]; then
@@ -874,4 +903,7 @@ if [ "$notifydetail" ]; then
 		echo
 		cat $logfile
 	} | mail -s "backup: $setname $tsize ${globaltime}s (detailed)" $notifydetail
+fi
+if [ tailpid -gt 0 ]; then
+	kill $tailpid
 fi
