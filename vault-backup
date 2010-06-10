@@ -87,6 +87,7 @@ aprog=gzip
 aopt=9
 notify="root@$(hostname)"
 notifydetail=""
+usefstatforlock=0 # warning, setting to 1 may panic system due to fstat bugs
 
 # backup directory
 bkd="/etc/backup/$setname"
@@ -119,6 +120,41 @@ sshxtra="$sshxtra -o BatchMode=yes "
 totsize=0
 totucsize=0
 
+# Try to acquire lock
+lockdir=/var/run/vault-backup-$setname-$dumplistname-lock
+trylock() {
+	if ! mkdir $lockdir
+	then
+	    # XXX remove once fstat no longer crashes%!@#$!%@#$ the system
+	    if [ usefstatforlock -gt 0 ]; then
+		if [ -d $lockdir ]; then
+			if [ -f $lockdir/running -a \
+			    "$(fstat $lockdir/running| grep -v "^USER")" ]
+			then
+				return 1
+			else
+				exec 4> $lockdir/running
+				return 0
+			fi
+		else
+			return 1
+		fi
+	    else
+		return 1
+	    fi
+	else
+		exec 4> $lockdir/running
+		return 0
+	fi
+}
+unlock() {
+	if [ -f $lockdir/running ]; then
+		rm $lockdir/running
+	fi
+	if [ -d $lockdir ]; then
+		rmdir $lockdir
+	fi
+}
 bubble() {
 	echo "$outputstart"
 	cat
@@ -639,6 +675,10 @@ do
 	esac
 	[ -d $host ] || mkdir $host
 	fn="$(echo "$f" | sed 's,//,,;s,[/:],_,g')"
+	if ! trylock; then
+		log "Skipping $f, unable to acquire lock $lockdir"
+	else
+	trap 'unlock; exit 1' 0 1 15
 	log "dumping $f via $method"
 
 	if [ -f "$host/$fn.0" -a -f "$host/$fn.0.timestamp" ]; then
@@ -754,7 +794,7 @@ do
 	retrycount=0
 	#echo "$tmpfile"
 	#set -x
-	trap 'rm -f ${tmpfile}*; exit 1' 0 1 15
+	trap 'unlock;rm -f ${tmpfile}*; exit 1' 0 1 15
 	stderrpid=0
 	while [ retrycount -le maxretry ]; do
 		fail=0
@@ -850,8 +890,10 @@ do
 		fi
 	fi
 	trap 'exit 0' 0 1 15
+	unlock
+	fi # trylock
 done 
-fi
+fi # rsynconly
 
 # remotemirror should be of the form
 #  mirror://user@host/subdir
