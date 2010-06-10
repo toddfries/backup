@@ -121,38 +121,42 @@ totsize=0
 totucsize=0
 
 # Try to acquire lock
-lockdir=/var/run/vault-backup-$setname-$dumplistname-lock
+lockdir=/var/run/LOCK.vault-backup-$setname-$dumplistname
 trylock() {
-	if ! mkdir $lockdir
+	local host=$1 hostlock=${lockdir}-$host ret=0
+	if ! mkdir $hostlock
 	then
 	    # XXX remove once fstat no longer crashes%!@#$!%@#$ the system
 	    if [ usefstatforlock -gt 0 ]; then
-		if [ -d $lockdir ]; then
-			if [ -f $lockdir/running -a \
-			    "$(fstat $lockdir/running| grep -v "^USER")" ]
+		if [ -d $hostlock ]; then
+			if [ -f $hostlock/running -a \
+			    "$(fstat $hostlock/running| grep -v "^USER")" ]
 			then
-				return 1
+				ret=1
 			else
-				exec 4> $lockdir/running
-				return 0
+				exec 4> $hostlock/running
 			fi
 		else
-			return 1
+			ret=1
 		fi
 	    else
-		return 1
+		ret=1
 	    fi
 	else
-		exec 4> $lockdir/running
-		return 0
+		exec 4> $hostlock/running
 	fi
+	if [ ret -gt 0 ]; then
+		log "trylock: unable to acquire lock $hostlock"
+	fi
+	return $ret
 }
 unlock() {
-	if [ -f $lockdir/running ]; then
-		rm $lockdir/running
+	local host=$1 hostlock=${lockdir}-$host
+	if [ -f $hostlock/running ]; then
+		rm $hostlock/running
 	fi
-	if [ -d $lockdir ]; then
-		rmdir $lockdir
+	if [ -d $hostlock ]; then
+		rmdir $hostlock
 	fi
 }
 bubble() {
@@ -675,10 +679,10 @@ do
 	esac
 	[ -d $host ] || mkdir $host
 	fn="$(echo "$f" | sed 's,//,,;s,[/:],_,g')"
-	if ! trylock; then
-		log "Skipping $f, unable to acquire lock $lockdir"
+	if ! trylock $host; then
+		log "Skipping $f"
 	else
-	trap 'unlock; exit 1' 0 1 15
+	trap 'unlock $host; exit 1' 0 1 15
 	log "dumping $f via $method"
 
 	if [ -f "$host/$fn.0" -a -f "$host/$fn.0.timestamp" ]; then
@@ -794,7 +798,7 @@ do
 	retrycount=0
 	#echo "$tmpfile"
 	#set -x
-	trap 'unlock;rm -f ${tmpfile}*; exit 1' 0 1 15
+	trap 'unlock $host;rm -f ${tmpfile}*; exit 1' 0 1 15
 	stderrpid=0
 	while [ retrycount -le maxretry ]; do
 		fail=0
@@ -890,7 +894,7 @@ do
 		fi
 	fi
 	trap 'exit 0' 0 1 15
-	unlock
+	unlock $host
 	fi # trylock
 done 
 fi # rsynconly
