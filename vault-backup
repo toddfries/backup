@@ -240,7 +240,7 @@ log() {
 	_log "$(date +"$datefmt")" "$@"
 }
 
-globalstart=$(date +%s)
+globalstart=$SECONDS
 _log "$(date -r $globalstart +"$datefmt")" "pid $$: backup of $bkd/$dumplistname list starting"
 tailpid=0
 if ! [ verbose -eq 0 ]; then
@@ -779,10 +779,10 @@ do
 	outfile="$fn.$thisl"
 	tmpfile="$(mktemp "$datadir/$host/.$outfile.XXXXXXXXXXX")"
 	outfile="$datadir/$host/$outfile"
-	start=$(date +%s) 
+	start=$SECONDS
 	if ! trylock $host; then
 		log "Skipping $f"
-		stop=$(date +%s)
+		stop=$SECONDS
 		savedetails -0 -0 $f $((stop-start)) $thisl
 	else
 	# XXX make start= be stat of timestamp
@@ -846,7 +846,7 @@ do
 		sleep 1
 		kill $stderrpid
 	fi
-	stop=$(date +%s)
+	stop=$SECONDS
 
 	if [ -f "$outfile.stderr" -a fail -eq 0 ]; then
 		tail -4 "$outfile.stderr" | head -3 | bubble >> $logfile
@@ -923,16 +923,16 @@ if [ "$remotemirror" ]; then
 		} > $tmpfile
 		chmod 755 $tmpfile
 		[ "$mirrorbw" ] && bwlimit="--bwlimit=$mirrorbw"
-		mirrorstart=$(date +%s)
+		mirrorstart=$SECONDS
 		log "Mirroring backups to $host:$dir"
 		/usr/local/bin/rsync -rtqz --partial --inplace $bwlimit -e $tmpfile \
 			--exclude=".*" $datadir/. $host:$dir
 		rm $tmpfile
-		mirrorstop=$(date +%s)
+		mirrorstop=$SECONDS
 		log "Mirror time $((mirrorstop-mirrorstart))s"
 	fi
 fi
-globalend=$(date +%s)
+globalend=$SECONDS
 globaltime=$((globalend-globalstart))
 savedetails $totsize $totucsize Total $globaltime -
 setunit $totucsize
