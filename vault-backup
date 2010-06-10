@@ -679,10 +679,6 @@ do
 	esac
 	[ -d $host ] || mkdir $host
 	fn="$(echo "$f" | sed 's,//,,;s,[/:],_,g')"
-	if ! trylock $host; then
-		log "Skipping $f"
-	else
-	trap 'unlock $host; exit 1' 0 1 15
 	log "dumping $f via $method"
 
 	if [ -f "$host/$fn.0" -a -f "$host/$fn.0.timestamp" ]; then
@@ -784,6 +780,11 @@ do
 	tmpfile="$(mktemp "$datadir/$host/.$outfile.XXXXXXXXXXX")"
 	outfile="$datadir/$host/$outfile"
 	start=$(date +%s) 
+	if ! trylock $host; then
+		log "Skipping $f"
+		stop=$(date +%s)
+		savedetails -0 -0 $f $((stop-start)) $thisl
+	else
 	# XXX make start= be stat of timestamp
 	touch "$tmpfile.timestamp"
 	case "$thisl" in
