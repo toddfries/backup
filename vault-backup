@@ -121,42 +121,46 @@ totsize=0
 totucsize=0
 
 # Try to acquire lock
-lockdir=/var/run/LOCK.vault-backup-$setname-$dumplistname
+trylockdir=$datadir/.LOCK.$setname-$dumplistname.try
+hardlockdir=$datadir/.LOCK.$setname-$dumplistname.hard
+hardlock() {
+	local lockdir=$1
+	while ! mkdir $lockdir > /dev/null 2>&1
+	do
+		sleep 0.$((RANDOM%9+1))
+	done
+	log "hardlocked $lockdir"
+}
 trylock() {
-	local host=$1 hostlock=${lockdir}-$host ret=0
-	if ! mkdir $hostlock
+	local host=$1
+	local lockdir=${trylockdir}-$host ret=0
+	if ! mkdir $lockdir > /dev/null 2>&1
 	then
 	    # XXX remove once fstat no longer crashes%!@#$!%@#$ the system
 	    if [ usefstatforlock -gt 0 ]; then
-		if [ -d $hostlock ]; then
-			if [ -f $hostlock/running -a \
-			    "$(fstat $hostlock/running| grep -v "^USER")" ]
-			then
-				ret=1
-			else
-				exec 4> $hostlock/running
-			fi
-		else
+		if [ "$(fstat $lockdir/running| grep -v "^USER")" ]
+		then
 			ret=1
 		fi
 	    else
 		ret=1
 	    fi
-	else
-		exec 4> $hostlock/running
 	fi
 	if [ ret -gt 0 ]; then
-		log "trylock: unable to acquire lock $hostlock"
+		log "trylock: unable to acquire lock $lockdir"
+	else
+		hardlock $hardlockdir-$host
+		exec 4> $lockdir/running
+		log "trylock: acquired lock $lockdir"
+		unlock $hardlockdir-$host
 	fi
 	return $ret
 }
 unlock() {
-	local host=$1 hostlock=${lockdir}-$host
-	if [ -f $hostlock/running ]; then
-		rm $hostlock/running
-	fi
-	if [ -d $hostlock ]; then
-		rmdir $hostlock
+	local lockdir=$1
+	if [ -d $lockdir ]; then
+		rm -rf $lockdir
+		log "unlocked $lockdir"
 	fi
 }
 bubble() {
@@ -799,7 +803,7 @@ do
 	retrycount=0
 	#echo "$tmpfile"
 	#set -x
-	trap 'unlock $host;rm -f ${tmpfile}*; exit 1' 0 1 15
+	trap 'unlock $trylockdir-$host;rm -f ${tmpfile}*; exit 1' 0 1 15
 	stderrpid=0
 	while [ retrycount -le maxretry ]; do
 		fail=0
@@ -895,7 +899,7 @@ do
 		fi
 	fi
 	trap 'exit 0' 0 1 15
-	unlock $host
+	unlock $trylockdir-$host
 	fi # trylock
 done 
 fi # rsynconly
