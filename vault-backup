@@ -43,7 +43,7 @@ done
 
 setname="$1"
 if ! [ "$setname" ]; then
-	echo "Usage: $0 backupsetname"
+	echo "Usage: $0 backupsetname [<dumplistname>]"
 	exit 2
 fi
 dumplistname="dumplist"
@@ -950,13 +950,14 @@ echo "$details"
 _log "$(date -r $globalend +"$datefmt")" "pid $$: backup of $@ set completed"
 
 # Mail Notification(s)
-mail -s "backup: $setname $tsize ${globaltime}s" $notify < ${logfile%*.log}.summary
+subject="vault-backup: $setname/$dumplistname $tsize ${globaltime}s"
+mail -s "$subject" $notify < ${logfile%*.log}.summary
 if [ "$notifydetail" ]; then
 	{
 		cat ${logfile%*.log}.summary
 		echo
 		cat $logfile
-	} | mail -s "backup: $setname $tsize ${globaltime}s (detailed)" $notifydetail
+	} | mail -s "$subject (detailed)" $notifydetail
 fi
 if [ tailpid -gt 0 ]; then
 	sleep 1
