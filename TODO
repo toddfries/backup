@@ -11,6 +11,9 @@
 - automate samba password reset procedure
   echo "$oldpass\n$newpass\n$newpass" | smbpasswd -r servername -Uusername -s
 - handle 'session setup failed: NT_STATUS_PASSWORD_EXPIRED'
+- separate process for compression of backup data
+  - restrict # of concurrent compression processes
+   - use `lock' and `trylock' routines
 
 
 - metadata
