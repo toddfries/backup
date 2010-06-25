@@ -129,7 +129,9 @@ hardlock() {
 	do
 		sleep 0.$((RANDOM%9+1))
 	done
-	log "hardlocked $lockdir"
+	if [ verbose -gt 2 ]; then
+		log "hardlocked $lockdir"
+	fi
 }
 trylock() {
 	local host=$1
@@ -147,11 +149,15 @@ trylock() {
 	    fi
 	fi
 	if [ ret -gt 0 ]; then
-		log "trylock: unable to acquire lock $lockdir"
+		if [ verbose -gt 2 ]; then
+			log "trylock: unable to acquire lock $lockdir"
+		fi
 	else
 		hardlock $hardlockdir-$host
 		exec 4> $lockdir/running
-		log "trylock: acquired lock $lockdir"
+		if [ verbose -gt 2 ]; then
+			log "trylock: acquired lock $lockdir"
+		fi
 		unlock $hardlockdir-$host
 	fi
 	return $ret
@@ -160,7 +166,9 @@ unlock() {
 	local lockdir=$1
 	if [ -d $lockdir ]; then
 		rm -rf $lockdir
-		log "unlocked $lockdir"
+		if [ verbose -gt 2 ]; then
+			log "unlocked $lockdir"
+		fi
 	fi
 }
 bubble() {
