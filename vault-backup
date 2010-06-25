@@ -202,8 +202,8 @@ setunit() {
 detailsrun=0
 savedetails() {
 	#set -x
-	local s="$1" ucs="$2" fs="$3" time="$4" level="$5"
-	local h m tmp comp ratio
+	local s="$1" ucs="$2" fs="$3" time="$4" level="$5" why="$6"
+	local h m tmp comp ratio why
 	if [ s -eq 0 -o ucs -eq 0 ]; then
 		comp=0
 		ratio=0
@@ -232,11 +232,15 @@ savedetails() {
 	details="$details$(printf "$fmt" $size $unit $ctime $unit) "
 	details="$details$(printf "%6.2f %6.2f " $comp $ratio)"
 	details="$details$(printf "%2d:%02d:%02d %2s" $h $m $s $level) $fs"
+	if [ "$why" ]; then
+		details="$details (Failed $why, $retrycount retries)"
+	fi
 	detailsrun=1
 }
 
 details=""
 logfile="$datadir/$setname.$(date +%Y%m%d%H%M%S).log"
+sumfile="${logfile%*.log}.summary"
 _log() {
 	printf "%s %s\n" "$1" "$2" >> $logfile
 }
@@ -787,7 +791,8 @@ do
 	if ! trylock $host; then
 		log "Skipping $f"
 		stop=$SECONDS
-		savedetails -0 -0 $f $((stop-start)) $thisl
+		savedetails -0 -0 $f $((stop-start)) $thisl "host locked"
+		rm -f ${tmpfile}*
 	else
 	# XXX make start= be stat of timestamp
 	touch "$tmpfile.timestamp"
@@ -891,12 +896,19 @@ do
 		# at least one backup even if it is partial
 		if [ -f "${outfile}" ]; then
 			rm -f "$tmpfile"*
-			savedetails -0 -0 $f $((stop-start)) $thisl
 		else
 			mv "$tmpfile" "${outfile}-failed" && \
 			mv "$tmpfile.timestamp" "${outfile}-failed.timestamp" && \
 			mv "$tmpfile.stderr" "${outfile}-failed.stderr"
 		fi
+		local why
+		case "$fail" in
+		103) why="password expired";;
+		102) why="DNS failure";;
+		101) why="unknown";;
+		*) why="fail=$fail";;
+		esac
+		savedetails -0 -0 $f $((stop-start)) $thisl "$why"
 	fi
 	trap 'exit 0' 0 1 15
 	unlock $trylockdir-$host
@@ -946,15 +958,15 @@ echo "  Uncompressed        Compressed       Percent        Time  Level FileSyst
 echo "     data  speed/s      data  speed/s      %      % HH:MM:SS    hostname:/subdir"
 #cho "  43.49KB   1.01KB    7.21KB   0.16KB  16.58  83.42  0:00:43 10 (Total)"
 echo "$details"
-} > "${logfile%*.log}".summary
+} > "${sumfile}"
 _log "$(date -r $globalend +"$datefmt")" "pid $$: backup of $@ set completed"
 
 # Mail Notification(s)
 subject="vault-backup: $setname/$dumplistname $tsize ${globaltime}s"
-mail -s "$subject" $notify < ${logfile%*.log}.summary
+mail -s "$subject" $notify < "${sumfile}"
 if [ "$notifydetail" ]; then
 	{
-		cat ${logfile%*.log}.summary
+		cat "${sumfile}"
 		echo
 		cat $logfile
 	} | mail -s "$subject (detailed)" $notifydetail
@@ -962,4 +974,5 @@ fi
 if [ tailpid -gt 0 ]; then
 	sleep 1
 	kill $tailpid
+	cat "${sumfile}"
 fi
