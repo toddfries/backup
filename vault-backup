@@ -245,7 +245,7 @@ savedetails() {
 	details="$details$(printf "%6.2f %6.2f " $comp $ratio)"
 	details="$details$(printf "%2d:%02d:%02d %2s" $h $m $s $level) $fs"
 	if [ "$why" ]; then
-		details="$details (Failed $why, $retrycount retries)"
+		details="$details (Failed $why, $retrycount tries)"
 	fi
 	detailsrun=1
 }
@@ -617,6 +617,52 @@ do
 						{print}'
 		}
 	;;
+	pgdump*) # pgdump://user@host:port/database[/-option/-option]
+		method=sshdump
+		host=$(echo "$f" | sed 's,pgdump://.*@\([^/]*\)/.*$,\1,')
+		pgport="5432"
+		pgargs=""
+		if [ "${host}" != "${host#*:}" ]; then
+			pgport=$(echo "$host" | sed 's/^.*:\(.*\)$/\1/')
+			host=$(echo "$host" | sed 's/^\(.*\):.*$/\1/')
+		fi
+		authuser=$(echo "$f" | sed 's,pgdump://\(.*\)@.*$,\1,')
+		file=$(echo "$f" | sed 's,pgdump://.*@[^/]*/\(.*\)$,\1,')
+		if [ "${file}" != "${file#*/}" ]; then
+			newfile=${file%%/*}
+			for _a in $(echo ${file#${newfile}/}|sed 's,/, ,g')
+			do
+				args="$args ${_a}"
+			done
+			file="$newfile"
+		fi
+		db=$file
+		file="PGDB-$file"
+		f="$host:$file"
+		backupmethod() {
+			export PGPASSFILE=$bkd/${host}_pgpass
+			echo "PGPASSFILE=$PGPASSFILE" > /dev/stderr
+			# -Fc --compress=0 # only after all db's are 8.3.x & up
+			# similar to tar
+			cmd="/usr/local/bin/pg_dump -h $host -p $pgport -U$authuser -s $args $db"
+			echo "$cmd" > /dev/stderr
+			$cmd && echo "$successcookie" > /dev/stderr || echo "returned $?" > /dev/stderr
+		}
+		listmethod() {
+			# For lack of other ideas, show schema but no data
+			$aprog -d < "$outfile" |
+				awk '
+				/^--/		{next}
+				/^$/		{next}
+				/^CREATE TABLE/	{createtable=1}
+				/^\);$/		{createtable=0;print;next}
+				/^COPY/		{copy=1}
+				/^\\\./         {copy=0}
+				/^[A-Z]/	{if (!copy) {print}; next}
+						{if (createtable) {print}}
+			'
+		}
+	;;
 	sshgpgdump*) # sshgpgdump://user@host/sub/dir/or/device
 		method=sshgpgdump
 		host=$(echo "$f" | sed 's,sshgpgdump://.*@\([^/]*\)/.*$,\1,')
@@ -799,9 +845,11 @@ do
 	outfile="$fn.$thisl"
 	tmpfile="$(mktemp "$datadir/$host/.$outfile.XXXXXXXXXXX")"
 	outfile="$datadir/$host/$outfile"
+	retrycount=0
+	stderrpid=0
 	start=$SECONDS
 	if ! trylock $host; then
-		log "Skipping $f"
+		log "Skipping $f (locked)"
 		stop=$SECONDS
 		savedetails -0 -0 $f $((stop-start)) $thisl "host locked"
 		rm -f ${tmpfile}*
@@ -817,11 +865,9 @@ do
 	;;
 	esac
 	_log "$(date -r $start +"$datefmt")" "Start of this level $thisl"
-	retrycount=0
 	#echo "$tmpfile"
 	#set -x
 	trap 'unlock $trylockdir-$host;rm -f ${tmpfile}*; exit 1' 0 1 15
-	stderrpid=0
 	while [ retrycount -le maxretry ]; do
 		fail=0
 		if [ stderrpid -gt 0 ]; then
@@ -843,13 +889,16 @@ do
 			mv "$tmpfile.stderr" "$outfile.stderr" && \
 			listmethod 2> /dev/null | $aprog -$aopt > "$outfile.filelist"
 		else
+			fail=101
 			if [ "$(tail -2 "$tmpfile.stderr" | grep "session setup failed: NT_STATUS_PASSWORD_EXPIRED")" ]; then
 				fail=103
 				let retrycount=maxretry+1
 				log "password expired, please reset"
 				# XXX implement password reset procedure
 			fi
-			fail=101
+			if [ "$(tail -2 "$tmpfile.stderr" | grep "no pg_hba.conf entry for host")" ]; then
+				fail=104
+			fi
 			let retrycount=retrycount+1
 			[ retrycount -le maxretry ] && log "$f failed, retrying... $retrycount of $maxretry"
 			continue
@@ -915,6 +964,7 @@ do
 		fi
 		local why
 		case "$fail" in
+		104) why="PostgreSQL access denied";;
 		103) why="password expired";;
 		102) why="DNS failure";;
 		101) why="unknown";;
