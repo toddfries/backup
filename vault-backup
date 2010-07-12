@@ -25,6 +25,8 @@ verbose=0
 tty=`tty 2>&1`
 if [ "$tty" = "not a tty" ]; then
 	tty=/dev/null
+else
+	tty=/dev/tty
 fi
 while [ "$1" ]
 do
@@ -264,8 +266,8 @@ globalstart=$SECONDS
 _log "$(date -r $globalstart +"$datefmt")" "pid $$: backup of $bkd/$dumplistname list starting"
 tailpid=0
 if ! [ verbose -eq 0 ]; then
-	echo "verbose=$verbose" > $tty
-	tail -f "$logfile" > $tty & tailpid=$!
+	echo "verbose=$verbose" >> $tty
+	tail -f "$logfile" >> $tty & tailpid=$!
 fi
 
 dayofweek=$(date +%w)
@@ -669,7 +671,7 @@ do
 		authuser=$(echo "$f" | sed 's,sshgpgdump://\(.*\)@.*$,\1,')
 		file=$(echo "$f" | sed 's,sshgpgdump://.*@[^/]*\(/.*\)$,\1,')
 		f="$host:$file"
-		echo "host=$host authouser=$authuser file=$file f=$f" > $tty
+		echo "host=$host authouser=$authuser file=$file f=$f" >> $tty
 		backupmethod() {
 			local time="" timecmd="-a" cmd cmd2
 			cmd=$(sshcmdline $authuser $host)
@@ -877,7 +879,7 @@ do
 		stderrpid=0
 		if [ verbose -gt 1 ]; then
 			:> "$tmpfile.stderr"
-			tail -f "$tmpfile.stderr" > $tty & stderrpid=$!
+			tail -f "$tmpfile.stderr" >> $tty & stderrpid=$!
 		fi
 		backupmethod 2> "$tmpfile.stderr" | \
 			$aprog -$aopt > "$tmpfile"
