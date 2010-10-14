@@ -1,3 +1,5 @@
+- save borked backup as ${filename}.borked, ${filename}.borked1, etc and remove
+  only if a succssful backup is done
 - load dumplist into an array vs for.. in $(sed ../dumplist)
 - afs
   - permit specifying '*' for volume names, i.e. fdc.finance.*
