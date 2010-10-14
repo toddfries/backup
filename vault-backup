@@ -671,7 +671,7 @@ do
 		authuser=$(echo "$f" | sed 's,sshgpgdump://\(.*\)@.*$,\1,')
 		file=$(echo "$f" | sed 's,sshgpgdump://.*@[^/]*\(/.*\)$,\1,')
 		f="$host:$file"
-		echo "host=$host authouser=$authuser file=$file f=$f" >> $tty
+		echo "host=$host authuser=$authuser file=$file f=$f" >> $tty
 		backupmethod() {
 			local time="" timecmd="-a" cmd cmd2
 			cmd=$(sshcmdline $authuser $host)
