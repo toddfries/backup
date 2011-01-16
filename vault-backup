@@ -519,8 +519,8 @@ do
 				echo -n "while read name; do if [ -d \"\$name\" ]; then "
 				echo -n "let r=r+1; echo \"d \$name\"; else "
 				echo -n "let f=f+1; echo \"f \$name\"; fi; done; "
-				echo    "echo \"stoplist... \$r dirs, \$f files\"; } 1>&2" 
-				echo "rm -rf \$d"
+				echo -n "echo \"stoplist... \$r dirs, \$f files\"; } 1>&2 &&" 
+				echo    "rm -rf \$d"
 			} | $scmd sh && \
 			    echo "$successcookie" > /dev/stderr || \
 			    echo "returned $?" > /dev/stderr
