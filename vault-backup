@@ -982,6 +982,8 @@ fi # rsynconly
 
 # remotemirror should be of the form
 #  mirror://user@host/subdir
+#    or
+#  mirror:/subdir
 if [ "$remotemirror" ]; then
 	if [ "$(pgrep -u _backup rsync)" ]; then
 		log rsync already running, killing
@@ -992,24 +994,53 @@ if [ "$remotemirror" ]; then
 	if [ "$(pgrep -u _backup rsync)" ]; then
 		log not mirroring, rsync already running and not killable
 	else
-		user=$(echo $remotemirror|sed 's,mirror://\([^@]*\)@[^/]*/.*$,\1,')
-		host=$(echo $remotemirror|sed 's,mirror://[^@]*@\([^/]*\)/.*$,\1,')
-		dir=$(echo $remotemirror|sed 's,mirror://[^@]*@[^/]*\(/.*\)$,\1,')
-		tmpfile=$(mktemp $datadir/.ssh.XXXXXXXXXXX)
-		{
-			echo "#!/bin/sh" 
-			echo -n "$(sshcmdline) "
-			echo "\"\$@\""
-		} > $tmpfile
-		chmod 755 $tmpfile
+		user="" host="" dir=""
+		if [ "$(echo $remotemirror|grep @)" ]; then
+			user=$(echo $remotemirror|sed 's,mirror://\([^@]*\)@[^/]*/.*$,\1,')
+			host=$(echo $remotemirror|sed 's,mirror://[^@]*@\([^/]*\)/.*$,\1,')
+			dir=$(echo $remotemirror|sed 's,mirror://[^@]*@[^/]*\(/.*\)$,\1,')
+		else
+			dir=$(echo $remotemirror|sed 's,mirror:/*\(/.*\)$,\1,')
+		fi
 		[ "$mirrorbw" ] && bwlimit="--bwlimit=$mirrorbw"
-		mirrorstart=$SECONDS
-		log "Mirroring backups to $host:$dir"
-		/usr/local/bin/rsync -rtqz --partial --inplace $bwlimit -e $tmpfile \
-			--exclude=".*" $datadir/. $host:$dir
-		rm $tmpfile
-		mirrorstop=$SECONDS
-		log "Mirror time $((mirrorstop-mirrorstart))s"
+		location=""
+		rsyncargs=""
+		if [ "$host" ]; then
+			if [ "$user" ]; then
+				location="${user}@${host}:$dir"
+			else
+				location="${host}:$dir"
+			fi
+			tmpfile=$(mktemp $datadir/.ssh.XXXXXXXXXXX)
+			{
+				echo "#!/bin/sh" 
+				echo -n "$(sshcmdline) "
+				echo "\"\$@\""
+			} > $tmpfile
+			chmod 755 $tmpfile
+			rsyncargs="-e $tmpfile"
+		else
+			if [ "$dir" ]; then
+				if [ -d "$dir" ]; then
+					location="$dir"
+				else
+					log "Mirror dir $dir does not exist locally"
+				fi
+			fi
+		fi
+			
+		if [ "$location" ]; then
+			mirrorstart=$SECONDS
+			log "Mirroring backups to $location"
+			/usr/local/bin/rsync -rtqz --partial --inplace $bwlimit $rsyncargs \
+				--exclude=".*" $datadir/. $location
+			rm -f $tmpfile
+			mirrorstop=$SECONDS
+			log "Mirror time $((mirrorstop-mirrorstart))s"
+			savedetails -0 -0 "mirror" $((mirrorstop-mirrorstart)) -
+		else
+			log "Mirroring parse error: remotemirror=$remotemirror"
+		fi
 	fi
 fi
 globalend=$SECONDS
