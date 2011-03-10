@@ -821,7 +821,7 @@ do
 	nopt=""
 	nfil=""
 	nfiltime="0"
-	#echo "$f calculating level: req/high/tmp = $thisl/$high/$tmp"
+	#echo "'$f' calculating level: req/high/tmp = $thisl/$high/$tmp"
 	case $((thisl+0)) in
 	0)
 		nopt=""
@@ -841,7 +841,7 @@ do
 		high=$((thisl-1))
 		tmp=$((thisl-2))
 		while [ tmp -ge 0 ]; do
-			#echo "$f calculating level: req/high/tmp = $thisl/$high/$tmp"
+			#echo "'$f' calculating level: req/high/tmp = $thisl/$high/$tmp"
 			tmpfile="$host/${fn}.${tmp}.timestamp"
 			highfile="$host/${fn}.${high}.timestamp"
 			if [ -f "$tmpfile" -a -f "$highfile" ] && \
@@ -862,7 +862,7 @@ do
 			fi
 		fi
 		nfiltime=$(stat -f%c "$nfil")
-		#echo "$f calculated level: req/high/tmp = $thisl/$high/$tmp"
+		#echo "'$f' calculated level: req/high/tmp = $thisl/$high/$tmp"
 	;;
 	esac
 
@@ -873,9 +873,9 @@ do
 	stderrpid=0
 	start=$SECONDS
 	if ! trylock $host; then
-		log "Skipping $f (locked)"
+		log "Skipping '$f' (locked)"
 		stop=$SECONDS
-		savedetails -0 -0 $f $((stop-start)) $thisl "host locked"
+		savedetails -0 -0 "$f" $((stop-start)) $thisl "host locked"
 		rm -f ${tmpfile}*
 	else
 	# XXX make start= be stat of timestamp
@@ -924,13 +924,13 @@ do
 				fail=104
 			fi
 			let retrycount=retrycount+1
-			[ retrycount -le maxretry ] && log "$f failed, retrying... $retrycount of $maxretry"
+			[ retrycount -le maxretry ] && log "'$f' failed, retrying... $retrycount of $maxretry"
 			continue
 		fi
 		if [ "$( tail "$outfile.stderr" | grep "no address associated" )" ]
 		then
 			fail=102
-			echo "DNS failure for $f, Retrying..."
+			echo "DNS failure for '$f', Retrying..."
 			let retrycount=retrycount+1
 			continue
 		fi
@@ -963,7 +963,7 @@ do
 		totucsize="$( echo $ucsize + $totucsize | bc )"
 		summdate="$(date -r $stop +"$datefmt")"
 		_log "$summdate" "Stop  of this level $thisl"
-		savedetails $size $ucsize $f $((stop-start)) $thisl
+		savedetails $size $ucsize "$f" $((stop-start)) $thisl
 	else
 		if [ -f "$tmpfile.stderr" ]; then
 		    {
@@ -994,7 +994,7 @@ do
 		101) why="unknown";;
 		*) why="fail=$fail";;
 		esac
-		savedetails -0 -0 $f $((stop-start)) $thisl "$why"
+		savedetails -0 -0 "$f" $((stop-start)) $thisl "$why"
 	fi
 	trap 'exit 0' 0 1 15
 	unlock $trylockdir-$host
