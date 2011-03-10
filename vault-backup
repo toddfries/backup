@@ -47,16 +47,6 @@ do
 	esac
 done
 
-setname="$1"
-if ! [ "$setname" ]; then
-	echo "Usage: $0 backupsetname [<dumplistname>]"
-	exit 2
-fi
-dumplistname="dumplist"
-if [ "$2" ]; then
-	dumplistname="$2"
-fi
-
 
 # Tower of Hanoi
 # 0 2 1 4 3 6 5 8 7 8 9 <-- backup level
@@ -95,12 +85,37 @@ notify="root@$(hostname)"
 notifydetail=""
 usefstatforlock=0 # warning, setting to 1 may panic system due to fstat bugs
 
+setname="$1"
+if ! [ "$setname" ]; then
+	echo "Usage: $0 backupsetname [<dumplistname>]"
+	exit 2
+fi
+
 # backup directory
 bkd="/etc/backup/$setname"
 
 if ! [ -d "$bkd" ]; then
 	echo "$bkd directory does not exist!"
 	exit 3
+fi
+dumplistname="dumplist"
+if [ "$2" ]; then
+	# XXX once all users have converted to dumplist.foo -> foo,
+	#     remove $bkd/$2 case
+	if [ -f "$bkd/$2" ]; then
+		dumplistname="$2"
+		dumplistsubj="/$2"
+	else
+		if [ -f "$bkd/${dumplistname}.$2" ]; then
+			dumplistname="${dumplistname}.$2"
+			dumplistsubj="/$2"
+		else
+			echo "dumplist $2 not found!"
+			exit 1
+		fi
+	fi
+else
+	dumplistsubj=""
 fi
 if ! [ -f "$bkd/$dumplistname" ]; then
 	echo "$bkd/$dumplistname file does not exist!"
@@ -216,8 +231,8 @@ setunit() {
 detailsrun=0
 savedetails() {
 	#set -x
-	local s="$1" ucs="$2" fs="$3" time="$4" level="$5" why="$6"
-	local h m tmp comp ratio why
+	local s="$1" ucs="$2" fs="$3" time="$4" level="$5" lwhy="$6"
+	local h m tmp comp ratio
 	if [ s -eq 0 -o ucs -eq 0 ]; then
 		comp=0
 		ratio=0
@@ -246,8 +261,8 @@ savedetails() {
 	details="$details$(printf "$fmt" $size $unit $ctime $unit) "
 	details="$details$(printf "%6.2f %6.2f " $comp $ratio)"
 	details="$details$(printf "%2d:%02d:%02d %2s" $h $m $s $level) $fs"
-	if [ "$why" ]; then
-		details="$details (Failed $why, $retrycount tries)"
+	if [ "$lwhy" ]; then
+		details="$details (Failed $lwhy, $retrycount tries)"
 	fi
 	detailsrun=1
 }
@@ -333,6 +348,7 @@ sshcmdline() {
 smbclient=/usr/local/bin/smbclient
 smbpasswd=/usr/local/bin/smbpasswd
 pwgen=/usr/local/bin/pwgen
+why=""
 
 if [ rsynconly -eq 0 ]; then
 for f in $(sed 's/#.*$//;/^$/d' $bkd/$dumplistname)
@@ -353,7 +369,7 @@ do
 			while [ "$retry" -a retrycount -lt 2 ]; do 
 			  : > $tmpsmb
 
-			  cmd="$smbclient -d2 -E -A%s //$smbhost/$smbshare -D / -c 'tarmode full' -Tc%s %s -"
+			  cmd="$smbclient -d2 -E -A%s \"//$smbhost/$smbshare\" -D / -c 'tarmode full' -Tc%s %s -"
 			  echo "$cmd" $auth $nopt "$nfil" >> $tmpsmb
 			  {
 				echo "d=\$(mktemp -d /tmp/.smbbackup.XXXXXXXXXX)"
@@ -368,7 +384,7 @@ do
 				cat $auth
 				echo EOF
 				printf "$cmd" smbauth $nopt $smbfile
-				#echo "rm -rf \$d"
+				echo "&& rm -rf \$d"
 			  } | $scmd sh && echo "$successcookie" >> $tmpsmb || \
 			  echo "returned $?" >> $tmpsmb
 			  if tail -3 $tmpsmb | egrep "NT_STATUS_(PASSWORD_EXPIRED|LOGIN_FAILURE)" > /dev/null 2>&1; then
@@ -753,7 +769,7 @@ do
 	esac
 	[ -d $host ] || mkdir $host
 	fn="$(echo "$f" | sed 's,//,,;s,[/:],_,g')"
-	log "dumping $f via $method"
+	log "dumping '$f' via $method"
 
 	if [ -f "$host/$fn.0" -a -f "$host/$fn.0.timestamp" ]; then
 		# Do level `thisl-1' if the last level `thisl' is sufficiently close to level `thisl'
@@ -1063,7 +1079,7 @@ echo "$details"
 _log "$(date -r $globalend +"$datefmt")" "pid $$: backup of $@ set completed"
 
 # Mail Notification(s)
-subject="vault-backup: $setname/$dumplistname $tsize ${globaltime}s"
+subject="vault-backup: $setname$dumplistsubj $tsize ${globaltime}s"
 mail -s "$subject" $notify < "${sumfile}"
 if [ "$notifydetail" ]; then
 	{
