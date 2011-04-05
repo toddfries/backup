@@ -384,6 +384,8 @@ if [ rsynconly -eq 0 ]; then
 for f in $(sed 's/#.*$//;/^$/d' $bkd/$dumplistname)
 do
 	thisl=$l
+	thisaprog=$aprog
+	thisaopt=$aopt
 	case "$f" in
 	sshsmb*)
 		method=sshsmb
@@ -519,7 +521,7 @@ do
 			fi
 		}
 		listmethod() {
-			$aprog -d < "$outfile" | tar -tvf - | \
+			$thisaprog -d < "$outfile" | tar -tvf - | \
 				awk '	/^d/	{next} \
 					/^\-/	{ $1="";print} \
 						{print}'
@@ -574,7 +576,7 @@ do
 			    echo "returned $?" > /dev/stderr
 		}
 		listmethod() {
-			$aprog -d < "$outfile" | tar -tvf - | \
+			$thisaprog -d < "$outfile" | tar -tvf - | \
 				awk '	/^d/	{next} \
 					/^\-/	{ $1="";print} \
 						{print}'
@@ -605,7 +607,7 @@ do
 			$cmd $time "$timecmd" $args && echo "$successcookie" > /dev/stderr || echo "returned $?" > /dev/stderr
 		}
 		listmethod() {
-			$aprog -d < "$outfile" | restore -tyvf - | \
+			$thisaprog -d < "$outfile" | restore -tyvf - | \
 				awk '	/^dir/	{next} \
 					/leaf/	{ $1="";print} \
 						{print}'
@@ -626,7 +628,7 @@ do
 			$cmd && echo "$successcookie" > /dev/stderr || echo "returned $?" > /dev/stderr
 		}
 		listmethod() {
-			$aprog -d < "$outfile" | restore -tvyf - | \
+			$thisaprog -d < "$outfile" | restore -tvyf - | \
 				awk '	/^dir/	{next} \
 					/leaf/	{ $1="";print} \
 						{print}'
@@ -669,7 +671,7 @@ do
 			done
 		}
 		listmethod() {
-			$aprog -d < "$outfile" | restore -tvyf - | \
+			$thisaprog -d < "$outfile" | restore -tvyf - | \
 				awk '	/^dir/	{next} \
 					/leaf/	{ $1="";print} \
 						{print}'
@@ -709,7 +711,7 @@ do
 		}
 		listmethod() {
 			# For lack of other ideas, show schema but no data
-			$aprog -d < "$outfile" |
+			$thisaprog -d < "$outfile" |
 				awk '
 				/^--/		{next}
 				/^$/		{next}
@@ -730,6 +732,10 @@ do
 		f="$host:$file"
 		echo "host=$host authuser=$authuser file=$file f=$f" >> $tty
 		sshhost=$(netcheckhost "$host")
+		# This mechanism over-rides 'thisa*' attributes since
+		# compressing encrypted data is pointless
+		thisaprog="gzip"
+		thisaopt="1"
 		backupmethod() {
 			local time="" timecmd="-a" cmd cmd2
 			cmd=$(sshcmdline $authuser $sshhost)
@@ -743,7 +749,7 @@ do
 				args="-0a -f - $file"
 				echo " /sbin/dump -h 0 $time $timecmd $args" > /dev/stderr
 				echo " cmd=$cmd" > /dev/stderr
-				echo "/sbin/dump -h 0 $time '$timecmd' $args | $aprog -7 | gpg -e -r todd@fries.net -z 0"
+				echo "/sbin/dump -h 0 $time '$timecmd' $args | $aprog -$aopt | gpg -e -r todd@fries.net -z 0"
 			} | $cmd sh && echo "$successcookie" > /dev/stderr || echo "returned $?" > /dev/stderr
 			# XXX 1. create tempdir on remote system
 			# XXX 2. copy gpg key
@@ -775,7 +781,7 @@ do
 			$cmd $time "'$timecmd'" $args && echo "$successcookie" > /dev/stderr || echo "returned $?" > /dev/stderr
 		}
 		listmethod() {
-			$aprog -d < "$outfile" | restore -tvyf - | \
+			$thisaprog -d < "$outfile" | restore -tvyf - | \
 				awk '	/^dir/	{next} \
 					/leaf/	{ $1="";print} \
 						{print}'
@@ -942,14 +948,14 @@ do
 			tail -f "$tmpfile.stderr" >> $tty & stderrpid=$!
 		fi
 		backupmethod 2> "$tmpfile.stderr" | \
-			$aprog -$aopt > "$tmpfile"
+			$thisaprog -$aopt > "$tmpfile"
 		if [ "$(tail -1 "$tmpfile.stderr" | egrep "$successcookie$" 2> /dev/null)" ] && \
 			! [ "$(tail "$tmpfile.stderr" | egrep -i "Connection reset by peer|Connection timed out| denied|failed|Command not found|Killed |^ssh:.*:Operation timed out" 2> /dev/null)" ]; then
 			rotate "$outfile"
 			mv "$tmpfile" "$outfile" && \
 			mv "$tmpfile.timestamp" "$outfile.timestamp" && \
 			mv "$tmpfile.stderr" "$outfile.stderr" && \
-			listmethod 2> /dev/null | $aprog -$aopt > "$outfile.filelist"
+			listmethod 2> /dev/null | $thisaprog -$thisaopt > "$outfile.filelist"
 		else
 			fail=101
 			if [ "$(tail -2 "$tmpfile.stderr" | grep "session setup failed: NT_STATUS_PASSWORD_EXPIRED")" ]; then
@@ -996,7 +1002,7 @@ do
 
 	if [ -f "$outfile" -a fail -eq 0 ]; then
 		size=$(echo $(stat -f%z "$outfile")+0 | bc)
-		ucsize=$( echo $($aprog -d < "$outfile" | wc -c)+0 | bc)
+		ucsize=$( echo $($thisaprog -d < "$outfile" | wc -c)+0 | bc)
 		totsize="$( echo $size + $totsize  | bc)"
 		totucsize="$( echo $ucsize + $totucsize | bc )"
 		summdate="$(date -r $stop +"$datefmt")"
