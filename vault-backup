@@ -332,15 +332,18 @@ reportls() {
 }
 
 sshcmdline() {
-	local scmd="ssh $sshxtra -C " user="$1" host="$2"
+	local scmd="ssh $sshxtra -C " user="$1" host="$2" addr="$3"
 	if [ -f $bkd/${host}_sshconfig ]; then
 		scmd="$scmd -F $bkd/${host}_sshconfig "
 	fi
 	scmd="$scmd -i $bkd/${host}_sshkey "
+	if ! [ "$host" = "$addr" ]; then
+		scmd="$scmd -o hostkeyalias=$host"
+	fi
 	if [ "$user" -a "$host" ]; then
-		scmd="$scmd $user@$host "
+		scmd="$scmd $user@$addr "
 	else if [ "$host" ]; then
-		scmd="$scmd $host "
+		scmd="$scmd $addr "
 	fi; fi
 	echo "$scmd"
 }
@@ -431,11 +434,11 @@ do
 		auth=$bkd/${sshhost}_${smbhost}smbauth$smbauth
 		smbshare="$(echo "$smbshare"|sed 's/%SPACE%/ /g')"
 		f="${sshhost}-${smbhost}_${smbshare}"
-		sshhost=$(netcheckhost "$sshhost")
+		sshhost=$(netcheckhost "$host")
 		backupmethod() {
 			local retry="yes" retrycount=0
 			tmpsmb=`mktemp /tmp/.sshsmb.XXXXXXXXXX`
-			scmd=$(sshcmdline $sshuser $sshhost)
+			scmd=$(sshcmdline $sshuser $host $sshhost)
 			while [ "$retry" -a retrycount -lt 2 ]; do 
 			  : > $tmpsmb
 
@@ -578,7 +581,7 @@ do
 		sshhost=$(netcheckhost "$host")
 		backupmethod() {
 			#set -x
-			scmd=$(sshcmdline $authuser $sshhost)
+			scmd=$(sshcmdline $authuser $host $sshhost)
 			# would like -O but FreeBSD doesn't have it, bah
 			cmd="cd "\$dir" && find \"\$path\" -xdev %s -print | pax -wdv || exit 1"
 			printf "authuser=$authuser nopt=$nopt nfil=$nfil\n" > /dev/stderr
@@ -658,7 +661,7 @@ do
 		f="$host:$file"
 		sshhost=$(netcheckhost "$host")
 		backupmethod() {
-			cmd=$(sshcmdline $authuser $sshhost)
+			cmd=$(sshcmdline $authuser $host $sshhost)
 			cmd="$cmd /usr/sbin/backup -${thisl}uf - $file "
 			echo "$cmd" > /dev/stderr
 			#set -x
@@ -681,7 +684,7 @@ do
 		backupmethod() {
 			local retry="yes" retrycount=0
 			tmpbn=`mktemp /tmp/.sshbn.XXXXXXXXXX`
-			scmd=$(sshcmdline $authuser $sshhost)
+			scmd=$(sshcmdline $authuser $host $sshhost)
 			while [ "$retry" -a retrycount -lt 2 ]; do 
 			  : > $tmpbn
 
@@ -775,7 +778,7 @@ do
 		thisaopt="1"
 		backupmethod() {
 			local time="" timecmd="-a" cmd cmd2
-			cmd=$(sshcmdline $authuser $sshhost)
+			cmd=$(sshcmdline $authuser $host $sshhost)
 			{
 				
 				echo "id > /dev/stderr"
@@ -807,7 +810,7 @@ do
 		sshhost=$(netcheckhost "$host")
 		backupmethod() {
 			local time="" timecmd="-a"
-			cmd=$(sshcmdline $authuser $sshhost)
+			cmd=$(sshcmdline $authuser $host $sshhost)
 			cmd="$cmd /sbin/dump -h 0 "
 			if [ "$nfil" ]; then
 				time="-T "
@@ -832,7 +835,7 @@ do
 		f="$host:$vol"
 		sshhost=$(netcheckhost "$host")
 		backupmethod() {
-			cmd=$(sshcmdline $authuser $sshhost)
+			cmd=$(sshcmdline $authuser $host $sshhost)
 			cmd="$cmd /usr/local/sbin/vos "
 			$cmd backup $vol -localauth || return
 			cmd="$cmd dump ${vol}.backup "
