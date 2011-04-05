@@ -132,7 +132,7 @@ else
 	exit 5
 fi
 
-sshxtra="$sshxtra -o BatchMode=yes "
+sshxtra="$sshxtra -o BatchMode=yes -o ServerAliveInterval=3600 -o ServerAliveCountMax=23 -o TCPKeepAlive=no "
 
 #
 # vars not overrideable
@@ -344,6 +344,36 @@ sshcmdline() {
 	fi; fi
 	echo "$scmd"
 }
+pingwait=2
+pingcount=2
+# in the event a hostname resolves to multiple addresses, fast-track the
+# first one that responds to ping; in the event anything goes wrong with
+# this checking, return the original hostname passed in, so we always have
+# no worse behavior than not checking at all
+netchechost() {
+	local host="$1"
+	local h ignore a b c addr
+	local addrlist=$(host "$1" | while read h ignore a b c
+		do
+			case "$a" in
+			address) echo $b;;
+			IPv6)    echo $c;; 
+			*) continue;;
+			esac
+		done)
+	for addr in $(echo "$addrlist" | grep :; echo "$addrlist" | grep -v :)
+	do
+		case "$addr" in
+		*:*) cmd="ping6 -i $pingwait -c $pingcount $addr";; 
+		*)   cmd="ping -w $pingwait -c $pingcount $addr";;
+		esac
+		if $cmd > /dev/null 2>&1; then
+			echo $addr
+			return
+		fi
+	done
+	echo "$host"
+}
 
 smbclient=/usr/local/bin/smbclient
 smbpasswd=/usr/local/bin/smbpasswd
@@ -362,6 +392,7 @@ do
 		auth=$bkd/${sshhost}_${smbhost}smbauth$smbauth
 		smbshare="$(echo "$smbshare"|sed 's/%SPACE%/ /g')"
 		f="${sshhost}-${smbhost}_${smbshare}"
+		sshhost=$(netcheckhost "$sshhost")
 		backupmethod() {
 			local retry="yes" retrycount=0
 			tmpsmb=`mktemp /tmp/.sshsmb.XXXXXXXXXX`
@@ -505,9 +536,10 @@ do
 		authuser=$(echo "$f" | sed 's,sshtar://\(.*\)@.*$,\1,')
 		file=$(echo "$f" | sed 's,sshtar://.*@[^/]*\(/.*\)$,\1,')
 		f="$host:$file"
+		sshhost=$(netcheckhost "$host")
 		backupmethod() {
 			#set -x
-			scmd=$(sshcmdline $authuser $host)
+			scmd=$(sshcmdline $authuser $sshhost)
 			# would like -O but FreeBSD doesn't have it, bah
 			cmd="cd "\$dir" && find \"\$path\" -xdev %s -print | pax -wdv || exit 1"
 			printf "authuser=$authuser nopt=$nopt nfil=$nfil\n" > /dev/stderr
@@ -585,8 +617,9 @@ do
 		authuser=$(echo "$f" | sed 's,sshbackup://\(.*\)@.*$,\1,')
 		file=$(echo "$f" | sed 's,sshbackup://.*@[^/]*\(/.*\)$,\1,')
 		f="$host:$file"
+		sshhost=$(netcheckhost "$host")
 		backupmethod() {
-			cmd=$(sshcmdline $authuser $host)
+			cmd=$(sshcmdline $authuser $sshhost)
 			cmd="$cmd /usr/sbin/backup -${thisl}uf - $file "
 			echo "$cmd" > /dev/stderr
 			#set -x
@@ -605,10 +638,11 @@ do
 		authuser=$(echo "$f" | sed 's,sshbackname://\(.*\)@.*$,\1,')
 		file=$(echo "$f" | sed 's,sshbackname://.*@[^/]*\(/.*\)$,\1,')
 		f="$host:$file"
+		sshhost=$(netcheckhost "$host")
 		backupmethod() {
 			local retry="yes" retrycount=0
 			tmpbn=`mktemp /tmp/.sshbn.XXXXXXXXXX`
-			scmd=$(sshcmdline $authuser $host)
+			scmd=$(sshcmdline $authuser $sshhost)
 			while [ "$retry" -a retrycount -lt 2 ]; do 
 			  : > $tmpbn
 
@@ -663,12 +697,13 @@ do
 		db=$file
 		file="PGDB-$file"
 		f="$host:$file"
+		pghost=$(netcheckhost "$host")
 		backupmethod() {
 			export PGPASSFILE=$bkd/${host}_pgpass
 			echo "PGPASSFILE=$PGPASSFILE" > /dev/stderr
 			# -Fc --compress=0 # only after all db's are 8.3.x & up
 			# similar to tar
-			cmd="/usr/local/bin/pg_dump -h $host -p $pgport -U$authuser -s $args $db"
+			cmd="/usr/local/bin/pg_dump -h $pghost -p $pgport -U$authuser -s $args $db"
 			echo "$cmd" > /dev/stderr
 			$cmd && echo "$successcookie" > /dev/stderr || echo "returned $?" > /dev/stderr
 		}
@@ -694,9 +729,10 @@ do
 		file=$(echo "$f" | sed 's,sshgpgdump://.*@[^/]*\(/.*\)$,\1,')
 		f="$host:$file"
 		echo "host=$host authuser=$authuser file=$file f=$f" >> $tty
+		sshhost=$(netcheckhost "$host")
 		backupmethod() {
 			local time="" timecmd="-a" cmd cmd2
-			cmd=$(sshcmdline $authuser $host)
+			cmd=$(sshcmdline $authuser $sshhost)
 			{
 				
 				echo "id > /dev/stderr"
@@ -725,9 +761,10 @@ do
 		authuser=$(echo "$f" | sed 's,sshdump://\(.*\)@.*$,\1,')
 		file=$(echo "$f" | sed 's,sshdump://.*@[^/]*\(/.*\)$,\1,')
 		f="$host:$file"
+		sshhost=$(netcheckhost "$host")
 		backupmethod() {
 			local time="" timecmd="-a"
-			cmd=$(sshcmdline $authuser $host)
+			cmd=$(sshcmdline $authuser $sshhost)
 			cmd="$cmd /sbin/dump -h 0 "
 			if [ "$nfil" ]; then
 				time="-T "
@@ -750,8 +787,9 @@ do
 		authuser=$(echo "$f" | sed 's,sshafs://\(.*\)@.*$,\1,')
 		vol=$(echo "$f" | sed 's,sshafs://.*@[^/]*/\(.*\)$,\1,')
 		f="$host:$vol"
+		sshhost=$(netcheckhost "$host")
 		backupmethod() {
-			cmd=$(sshcmdline $authuser $host)
+			cmd=$(sshcmdline $authuser $sshhost)
 			cmd="$cmd /usr/local/sbin/vos "
 			$cmd backup $vol -localauth || return
 			cmd="$cmd dump ${vol}.backup "
