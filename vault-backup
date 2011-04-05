@@ -344,23 +344,59 @@ sshcmdline() {
 	fi; fi
 	echo "$scmd"
 }
+# test the first argument against the remaining ones, return success on a match
+isin() {
+        local   _a=$1 _b
+
+        shift
+        for _b; do
+                [[ $_a == $_b ]] && return 0
+        done
+        return 1
+}
+set -A hostcachelist
+set -A hostcacheaddr
+netcachehost() {
+	if isin "$1" ${hostcachelist[*]}; then
+		return
+	fi
+	local i=${#hostcachelist[*]}
+	hostcachelist[$i]="$1"
+	hostcacheaddr[$i]="$2"
+}
+netcachecheck() {
+	if [ ${#hostcachelist[*]} -lt 1 ]; then
+		return
+	fi
+	if ! isin "$1" ${hostcachelist[*]}; then
+		return
+	fi
+	local i=0
+	while [ i -lt ${#hostcachelist[*]} ]
+	do
+		if [ "${hostcachelist[$i]}" = "$1" ]; then
+			echo "${hostcacheaddr[$i]}"
+			return
+		fi
+		let i=i+1
+	done
+}
 pingwait=2
 pingcount=2
 # in the event a hostname resolves to multiple addresses, fast-track the
 # first one that responds to ping; in the event anything goes wrong with
 # this checking, return the original hostname passed in, so we always have
 # no worse behavior than not checking at all
-netchechost() {
+netcheckhost() {
 	local host="$1"
 	local h ignore a b c addr
-	local addrlist=$(host "$1" | while read h ignore a b c
-		do
-			case "$a" in
-			address) echo $b;;
-			IPv6)    echo $c;; 
-			*) continue;;
-			esac
-		done)
+	addr=$(netcachecheck "$host")
+	if [ "$addr" ]; then
+		echo $addr
+		return
+	fi
+	local addrlist=$( host "$1" | while read h ignore a b c; do
+		[[ $a == @(*:*) ]] && echo $b || echo $c; done )
 	for addr in $(echo "$addrlist" | grep :; echo "$addrlist" | grep -v :)
 	do
 		case "$addr" in
@@ -368,6 +404,7 @@ netchechost() {
 		*)   cmd="ping -w $pingwait -c $pingcount $addr";;
 		esac
 		if $cmd > /dev/null 2>&1; then
+			netcachehost "$host" "$addr"
 			echo $addr
 			return
 		fi
