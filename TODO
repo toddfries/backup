@@ -1,3 +1,6 @@
+- figure out how to handle tar backups (including samba) where perms may
+  have changed since last level and thus files are not being backed up
+  because of this (per file storage/tracking/blocks dedup ?)
 - permit no compression as an option (especially useful for gpg backups)
 - save borked backup as ${filename}.borked, ${filename}.borked1, etc and remove
   only if a succssful backup is done
