@@ -778,8 +778,8 @@ do
 		sshhost=$(netcheckhost "$host")
 		# This mechanism over-rides 'thisa*' attributes since
 		# compressing encrypted data is pointless
-		thisaprog="gzip"
-		thisaopt="1"
+		thisaprog="none"
+		#thisaopt="1"
 		backupmethod() {
 			local time="" timecmd="-a" cmd cmd2
 			cmd=$(sshcmdline $authuser $host $sshhost)
@@ -991,15 +991,22 @@ do
 			:> "$tmpfile.stderr"
 			tail -f "$tmpfile.stderr" >> $tty & stderrpid=$!
 		fi
-		backupmethod 2> "$tmpfile.stderr" | \
-			$thisaprog -$aopt > "$tmpfile"
+		if [ "$thisaprog" = "none" ]; then
+			backupmethod
+		else
+			backupmethod | $thisaprog -$aopt
+		fi > "$tmpfile" 2> "$tmpfile.stderr"
 		if [ "$(tail -1 "$tmpfile.stderr" | egrep "$successcookie$" 2> /dev/null)" ] && \
 			! [ "$(tail "$tmpfile.stderr" | egrep -i "Connection reset by peer|Connection timed out| denied|failed|Command not found|Killed |^ssh:.*:Operation timed out" 2> /dev/null)" ]; then
 			rotate "$outfile"
 			mv "$tmpfile" "$outfile" && \
 			mv "$tmpfile.timestamp" "$outfile.timestamp" && \
 			mv "$tmpfile.stderr" "$outfile.stderr" && \
-			listmethod 2> /dev/null | $thisaprog -$thisaopt > "$outfile.filelist"
+			listmethod 2> /dev/null | if [ "$thisaprog" = "none" ]; then
+			    cat
+			else
+			    $thisaprog -$thisaopt
+			fi > "$outfile.filelist"
 		else
 			fail=101
 			if [ "$(tail -2 "$tmpfile.stderr" | grep "session setup failed: NT_STATUS_PASSWORD_EXPIRED")" ]; then
@@ -1046,7 +1053,11 @@ do
 
 	if [ -f "$outfile" -a fail -eq 0 ]; then
 		size=$(echo $(stat -f%z "$outfile")+0 | bc)
-		ucsize=$( echo $($thisaprog -d < "$outfile" | wc -c)+0 | bc)
+		if [ "$thisaprog" = "none" ]; then
+			ucsize=$size
+		else
+			ucsize=$( echo $($thisaprog -d < "$outfile" | wc -c)+0 | bc)
+		fi
 		totsize="$( echo $size + $totsize  | bc)"
 		totucsize="$( echo $ucsize + $totucsize | bc )"
 		summdate="$(date -r $stop +"$datefmt")"
