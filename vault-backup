@@ -336,7 +336,10 @@ reportls() {
 }
 
 sshcmdline() {
-	local scmd="ssh $sshxtra -C " user="$1" host="$2" addr="$3"
+	local scmd="ssh $sshxtra" user="$1" host="$2" addr="$3"
+	if [ "$thisaprog" != "none" ]; then
+		scmd="$scmd -C"
+	fi
 	if [ -f $bkd/${host}_sshconfig ]; then
 		scmd="$scmd -F $bkd/${host}_sshconfig "
 	fi
