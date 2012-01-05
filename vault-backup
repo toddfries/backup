@@ -1189,7 +1189,9 @@ echo "$details"
 _log "$(date -r $globalend +"$datefmt")" "pid $$: backup of $@ set completed"
 
 # Mail Notification(s)
-subject="vault-backup: $setname$dumplistsubj $tsize $(sectohms ${globaltime}|sed 's/:/h/;s/:/m/;s/^ //')s"
+subject="vault-backup: $setname$dumplistsubj $tsize $(
+	sectohms ${globaltime}|sed 's/:/h/;s/:/m/;s/^[ ]*//;s/^0h//;s/^00m//;s/^0//'
+)s"
 {
 	echo "Date: $(date +"%a, %e %b %Y %H:%M:%S %z (%Z)")"
 	echo
