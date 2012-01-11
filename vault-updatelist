@@ -25,11 +25,11 @@ usage() {
 	echo
 	echo "For example:"
 	echo
-	echo "   vault-updatelist virtual /var/www/virtual/* dump://a.b.c.com"
+	echo "   vault-updatelist virtual '/var/virtual/*' dump://a.b.c.com"
 	echo
 	echo "   or"
 	echo
-	echo "   vault-updatelist -s root@db1 db  /db/fs/*.dbs sshtar://root@db1"
+	echo "   vault-updatelist -s root@db1 db '/dbs/*.dbs' sshtar://root@db1"
 }
 
 if [ "$1" = "-s" ]; then
