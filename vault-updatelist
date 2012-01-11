@@ -14,8 +14,9 @@
 # ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 # OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 
-# The purpose of this script is to over-write a dumplist file given a prefix
-# for prepending a path if matched and if necessar a ssh host to connect to
+# The purpose of this script is to send to stdout the dumplist file
+# format given a prefix for prepending a path if matched and if necessary
+# a ssh host to connect to
 
 # If a ssh host is given, it will follow the standard way that vault-backup
 # does for keys and arguments etc
