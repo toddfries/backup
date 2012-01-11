@@ -276,6 +276,9 @@ savedetails() {
 details=""
 logfile="$datadir/$setname.$(date +%Y%m%d%H%M%S).log"
 sumfile="${logfile%*.log}.summary"
+:> $logfile
+:> $sumfile
+chflags nodump $logfile $sumfile
 _log() {
 	printf "%s %s\n" "$1" "$2" >> $logfile
 }
@@ -972,7 +975,8 @@ do
 		rm -f ${tmpfile}*
 	else
 	# XXX make start= be stat of timestamp
-	touch "$tmpfile.timestamp"
+	:> "$tmpfile.timestamp"
+	chflags nodump "$tmpfile.timestamp"
 	case "$thisl" in
 	0)
 	;;
@@ -998,8 +1002,11 @@ do
 		stderrpid=0
 		if [ verbose -gt 1 ]; then
 			:> "$tmpfile.stderr"
+			chflags nodump "$tmpfile.stderr"
 			tail -f "$tmpfile.stderr" >> $tty & stderrpid=$!
 		fi
+		:> "$tmpfile"
+		chflags nodump "$tmpfile"
 		if [ "$thisaprog" = "none" ]; then
 			backupmethod
 		else
@@ -1016,6 +1023,7 @@ do
 			else
 			    $thisaprog -$thisaopt
 			fi > "$outfile.filelist"
+			[ -f "$outfile.filelist" ] && chflags nodump "$outfile.filelist"
 		else
 			fail=101
 			if [ "$(tail -2 "$tmpfile.stderr" | grep "session setup failed: NT_STATUS_PASSWORD_EXPIRED")" ]; then
@@ -1188,7 +1196,9 @@ echo "$details"
 _log "$(date -r $globalend +"$datefmt")" "pid $$: backup of $@ set completed"
 
 # Mail Notification(s)
-subject="vault-backup: $setname$dumplistsubj $tsize $(sectohms ${globaltime}|sed 's/:/h/;s/:/m/;s/^ //')s"
+subject="vault-backup: $setname$dumplistsubj $tsize $(
+	sectohms ${globaltime}|sed 's/:/h/;s/:/m/;s/^[ ]*//;s/^0h//;s/^00m//;s/^0//'
+)s"
 {
 	echo "Date: $(date +"%a, %e %b %Y %H:%M:%S %z (%Z)")"
 	echo
