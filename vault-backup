@@ -84,6 +84,8 @@ aopt=9
 notify="root@$(hostname)"
 notifydetail=""
 usefstatforlock=0 # warning, setting to 1 may panic system due to fstat bugs
+houraftertime=19
+hourbeforetime=6
 
 setname="$1"
 if ! [ "$setname" ]; then
@@ -989,6 +991,10 @@ do
 			sleep 1
 			kill $stderrpid
 		fi
+		hourtime=$(date +%k)
+		if [ $hourtime -lt $houraftertime -a $hourtime -gt $hourbeforetime ]; then
+			fail=105
+		fi
 		stderrpid=0
 		if [ verbose -gt 1 ]; then
 			:> "$tmpfile.stderr"
@@ -1090,10 +1096,11 @@ do
 		fi
 		local why
 		case "$fail" in
-		104) why="PostgreSQL access denied";;
-		103) why="password expired";;
-		102) why="DNS failure";;
 		101) why="unknown";;
+		102) why="DNS failure";;
+		103) why="password expired";;
+		104) why="PostgreSQL access denied";;
+		105) why="outside backup window";;
 		*) why="fail=$fail";;
 		esac
 		savedetails -0 -0 "$f" $((stop-start)) $thisl "$why"
