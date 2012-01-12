@@ -141,9 +141,6 @@ sshxtra="$sshxtra -o BatchMode=yes -o ServerAliveInterval=3600 -o ServerAliveCou
 # vars not overrideable
 #
 
-totsize=0
-totucsize=0
-
 # Try to acquire lock
 trylockdir=$datadir/.LOCK.$setname-$dumplistname.try
 hardlockdir=$datadir/.LOCK.$setname-$dumplistname.hard
@@ -257,7 +254,6 @@ create() {
 	done
 }
 savedetails() {
-	#set -x
 	local s="$1" ucs="$2" fs="$3" time="$4" level="$5" lwhy="$6"
 	local h m tmp comp ratio
 	if [ "$s" -eq "0" -o "$ucs" -eq "0" ]; then
@@ -1173,8 +1169,6 @@ do
 		else
 			ucsize=$( echo $($thisaprog -d < "$outfile" | wc -c)+0 | bc)
 		fi
-		totsize="$( echo $size + $totsize  | bc)"
-		totucsize="$( echo $ucsize + $totucsize | bc )"
 		echo "$size $ucsize" >> $statfile.$c
 		summdate="$(date -r $stop +"$datefmt")"
 		_log "$summdate" "Stop  of this level $thisl"
@@ -1218,6 +1212,7 @@ do
 	fi # skip=0
 	let dumpjob=dumpjob+1
 done 
+logfile="$globallogfile"
 wait ${globaljobs[*]}
 for host in $hosts
 do
@@ -1292,26 +1287,32 @@ globalend=$SECONDS
 globaltime=$((globalend-globalstart))
 totsize="0"
 totucsize="0"
-set -x
-cat ${statfile}.[0-9]* | while read size ucsize
+let c=c+globalconcurrence
+cat ${statfile}.[0-9]* | {
+while read size ucsize
 do
 	totsize="$( bccalc "$size + $totsize" 0 )"
 	totucsize="$( bccalc "$ucsize + $totucsize" 0 )"
+	#echo totsize=$totsize totucsize=$totucsize
 done
-set +x
-let c=c+globalconcurrence
+#echo totsize=$totsize totucsize=$totucsize
 savedetails $totsize $totucsize Total $globaltime -
 setunit $totucsize
 tsize="$(printf "%.2f%-2s" "$sone" "$gunit")"
-_log "$(date -r $globalend +"$datefmt")" "pid $$: backup of $@ set completed"
+_log "$(date -r $globalend +"$datefmt")" "pid $$: backup of $setname$dumplistsubj set completed"
+}
 
 [ globalconcurrency -gt 1 ] && hostpos=9 || hostpos=8
 
 create "${sumfile}.tmp" "${sumfile}.total"
-if [ globalconcurrency -gt 9 -o c -gt 9 ]; then
-	sed "s/^${c}/  /" "${sumfile}".$c
-else
+if [ globalconcurrency -lt 10 -a c -gt 9 ]; then
 	sed "s/^${c}/ /" "${sumfile}".$c
+else
+	if [ globalconcurrency -gt 9 -o c -gt 9 ]; then
+		sed "s/^${c}/  /" "${sumfile}".$c
+	else
+		sed "s/^${c}/ /" "${sumfile}".$c
+	fi
 fi > "${sumfile}".total &&
 rm "${sumfile}".$c && \
 {
