@@ -794,7 +794,7 @@ do
 		}
 	;;
 	pgdump*) # pgdump://user@host:port/database[/-option/-option]
-		method=sshdump
+		method=pgdump
 		host=$(echo "$f" | sed 's,pgdump://.*@\([^/]*\)/.*$,\1,')
 		pgport="5432"
 		pgargs=""
@@ -879,9 +879,9 @@ do
 	;;
 	sshdump*) # sshdump://user@host/sub/dir/or/device
 		method=sshdump
-		host=$(echo "$f" | sed 's,sshdump://.*@\([^/]*\)/.*$,\1,')
-		authuser=$(echo "$f" | sed 's,sshdump://\(.*\)@.*$,\1,')
-		file=$(echo "$f" | sed 's,sshdump://.*@[^/]*\(/.*\)$,\1,')
+		host=$(echo "$f" | sed 's,sshdump://[^@]*@\([^/]*\)/.*$,\1,')
+		authuser=$(echo "$f" | sed 's,sshdump://\([^@]*\)@.*$,\1,')
+		file=$(echo "$f" | sed 's,sshdump://[^@]*@[^/]*\(/.*\)$,\1,')
 		f="$host:$file"
 		sshhost=$(netcheckhost "$host")
 		backupmethod() {
