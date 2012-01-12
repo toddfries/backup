@@ -147,6 +147,8 @@ totucsize=0
 # Try to acquire lock
 trylockdir=$datadir/.LOCK.$setname-$dumplistname.try
 hardlockdir=$datadir/.LOCK.$setname-$dumplistname.hard
+hosts=""
+trap 'for h in $hosts; do unlock $trylockdir-$host;done; for f in tmpfiles; do rm -f $f; done; exit 1' 0 1 15
 hardlock() {
 	local lockdir=$1
 	while ! mkdir $lockdir > /dev/null 2>&1
@@ -258,7 +260,7 @@ savedetails() {
 	#set -x
 	local s="$1" ucs="$2" fs="$3" time="$4" level="$5" lwhy="$6"
 	local h m tmp comp ratio
-	if [ "$s" = "0" -o "$ucs" = "0" -o "$ucs" = "0.00000" ]; then
+	if [ "$s" -eq "0" -o "$ucs" -eq "0" ]; then
 		comp=0
 		ratio=0
 	else
@@ -300,10 +302,16 @@ savedetails() {
 details=""
 logfile="$datadir/$setname.$(date +%Y%m%d%H%M%S).log"
 sumfile="${logfile%*.log}.summary"
+statfile="${logfile%*.log}.stats"
 create $logfile $sumfile
 {
-[ globalconcurrence -gt 1 ] && echo -n " "
-[ globalconcurrence -gt 9 ] && echo -n "P"
+echo "Start Date: $(date +"%a, %e %b %Y %H:%M:%S %z (%Z)")"
+echo
+[ globalconcurrence -gt 1 ] && {
+	echo "Parallel concurrent backups = $globalconcurrence"
+	[ globalconcurrence -gt 9 ] && echo -n " "
+	echo -n "P"
+}
 echo "  Uncompressed        Compressed       Percent         Time  Level FileSystem"
 [ globalconcurrence -gt 9 ] && echo -n " "
 [ globalconcurrence -gt 1 ] && echo -n "#"
@@ -314,16 +322,16 @@ _log() {
 	printf "%s %s\n" "$1" "$2" >> $logfile
 }
 log() {
-	_log "$(date +"$datefmt")" "$@"
+	local xtra=""
+	if [ globalconcurrence -gt 1 ]; then
+		xtra="${dumpjob} "
+	fi
+	_log "$(date +"$datefmt")" "$xtra$@"
 }
 
 globalstart=$SECONDS
 _log "$(date -r $globalstart +"$datefmt")" "pid $$: backup of $bkd/$dumplistname list starting"
 tailpid=0
-if ! [ verbose -eq 0 ]; then
-	echo "verbose=$verbose" >> $tty
-	tail -f "$logfile" >> $tty & tailpid=$!
-fi
 
 dayofweek=$(date +%w)
 l=${levels[$dayofweek]}
@@ -474,11 +482,23 @@ do
 		break
 	fi
 	globaljobs[$c]=""
+	create "$logfile".$c
+	if ! [ verbose -eq 0 ]; then
+		( tail -f "$logfile".$c | while read line; do echo "$c: $line"; done ) >> $tty &
+		tailpid="$tailpid $!"
+	fi
 	let c=c+1
 done
+if ! [ verbose -eq 0 ]; then
+	tail -f "$logfile" >> $tty & tailpid="$tailpid $!"
+fi
 
-for f in ${dumps[*]}
+dumpjob=0
+globallogfile="$logfile"
+while [ dumpjob -lt ${#dumps[*]} ]
 do
+	logfile="$globallogfile"
+	f=${dumps[$dumpjob]}
 	# wait for available slot
 	while :
 	do
@@ -498,6 +518,8 @@ do
 		sleep 2 # what is a good number?
 	done
 	#echo $(date) Slot $c opened up
+
+	logfile="$logfile.$c"
 	
 	thisl=$l
 	thisaprog=$aprog
@@ -1026,23 +1048,36 @@ do
 	;;
 	esac
 
-	# Until the closing ), the below cannot presume global vars escape
-	(
 
 	outfile="$fn.$thisl"
 	tmpfile="$(mktemp "$datadir/$host/.$outfile.XXXXXXXXXXX")"
 	outfile="$datadir/$host/$outfile"
-	logfile="$logfile.$c"
-	create "$logfile"
+
 	retrycount=0
 	stderrpid=0
 	start=$SECONDS
-	if ! trylock $host; then
-		log "Skipping '$f' (locked)"
-		stop=$SECONDS
-		savedetails -0 -0 "$f" $((stop-start)) $thisl "host locked"
-		rm -f ${tmpfile}*
+
+
+	# only lock each host once per backup run
+	skip=0
+	if ! isin "$host" $hosts; then
+		if ! trylock $host; then
+			log "Skipping '$f' (locked)"
+			stop=$SECONDS
+			savedetails -0 -0 "$f" $((stop-start)) $thisl "host locked"
+			rm -f ${tmpfile}*
+			skip=1
+		else
+			hosts="$hosts $host"
+		fi
 	else
+		log "Skipping lock check for host $host, already locked for this run"
+	fi
+
+	if [ skip -eq 0 ]; then
+
+	# Until the closing ), the below cannot presume global vars escape
+	(
 	# XXX make start= be stat of timestamp
 	create "$tmpfile.timestamp"
 	case "$thisl" in
@@ -1054,11 +1089,11 @@ do
 	;;
 	esac
 	_log "$(date -r $start +"$datefmt")" "Start of this level $thisl"
-	trap 'unlock $trylockdir-$host;rm -f ${tmpfile}*; exit 1' 0 1 15
 	while [ retrycount -le maxretry ]; do
 		fail=0
 		if [ stderrpid -gt 0 ]; then
 			sleep 1
+			sync
 			kill $stderrpid
 		fi
 		hourtime=$(date +%k)
@@ -1140,7 +1175,7 @@ do
 		fi
 		totsize="$( echo $size + $totsize  | bc)"
 		totucsize="$( echo $ucsize + $totucsize | bc )"
-		echo "$size $ucsize" >> $logfile.stats.$c
+		echo "$size $ucsize" >> $statfile.$c
 		summdate="$(date -r $stop +"$datefmt")"
 		_log "$summdate" "Stop  of this level $thisl"
 		savedetails $size $ucsize "$f" $((stop-start)) $thisl
@@ -1177,14 +1212,17 @@ do
 		esac
 		savedetails -0 -0 "$f" $((stop-start)) $thisl "$why"
 	fi
-	trap 'exit 0' 0 1 15
-	unlock $trylockdir-$host
-	fi # trylock
 	) & pid=$!
 	globaljobs[$c]=$pid
 	pids="$pids $pid"
+	fi # skip=0
+	let dumpjob=dumpjob+1
 done 
 wait ${globaljobs[*]}
+for host in $hosts
+do
+	unlock $trylockdir-$host
+done
 fi # rsynconly
 
 # remotemirror should be of the form
@@ -1254,17 +1292,20 @@ globalend=$SECONDS
 globaltime=$((globalend-globalstart))
 totsize="0"
 totucsize="0"
-cat ${logfile}.[0-9]*.stats.[0-9]* | while read size ucsize
+set -x
+cat ${statfile}.[0-9]* | while read size ucsize
 do
 	totsize="$( bccalc "$size + $totsize" 0 )"
 	totucsize="$( bccalc "$ucsize + $totucsize" 0 )"
 done
-rm ${logfile}.[0-9]*.stats.[0-9]*
+set +x
 let c=c+globalconcurrence
 savedetails $totsize $totucsize Total $globaltime -
 setunit $totucsize
 tsize="$(printf "%.2f%-2s" "$sone" "$gunit")"
 _log "$(date -r $globalend +"$datefmt")" "pid $$: backup of $@ set completed"
+
+[ globalconcurrency -gt 1 ] && hostpos=9 || hostpos=8
 
 create "${sumfile}.tmp" "${sumfile}.total"
 if [ globalconcurrency -gt 9 -o c -gt 9 ]; then
@@ -1273,7 +1314,11 @@ else
 	sed "s/^${c}/ /" "${sumfile}".$c
 fi > "${sumfile}".total &&
 rm "${sumfile}".$c && \
-cat "${sumfile}" "${sumfile}".[0-9]* "${sumfile}".total > "${sumfile}.tmp" && \
+{
+	cat "${sumfile}"
+	sort +$hostpos "${sumfile}".[0-9]*
+	cat "${sumfile}".total
+} > "${sumfile}.tmp" && \
 mv "${sumfile}.tmp" "${sumfile}" && \
 rm "${sumfile}".*
 
@@ -1287,21 +1332,23 @@ subject="vault-backup: $setname$dumplistsubj $tsize $(
 	sectohms ${globaltime}|sed 's/:/h/;s/:/m/;s/^[ ]*//;s/^0h//;s/^00m//;s/^0//'
 )s"
 {
-	echo "Date: $(date +"%a, %e %b %Y %H:%M:%S %z (%Z)")"
-	echo
 	cat "${sumfile}"
 } | mail -s "$subject" $notify
 if [ "$notifydetail" ]; then
 	{
-		echo "Date: $(date +"%a, %e %b %Y %H:%M:%S %z (%Z)")"
-		echo
 		cat "${sumfile}"
 		echo
-		cat $logfile
+		cat "${logfile}"
 	} | mail -s "$subject (detailed)" $notifydetail
 fi
-if [ tailpid -gt 0 ]; then
+
+if [ "$tailpid" != "0" ]; then
+	sleep 10
+	sync
 	sleep 1
+	sync
 	kill $tailpid
-	cat "${sumfile}"
+	cat "${sumfile}" > /dev/tty
+	sleep 5
+	kill -9 $tailpid
 fi
