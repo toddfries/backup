@@ -485,7 +485,7 @@ do
 		c=0
 		while [ c -lt globalconcurrence ]
 		do
-			echo $(date) Checking global concurrence..c=$c
+			#echo $(date) Checking global concurrence..c=$c
 			if [ "X${globaljobs[$c]}" = "X" ]; then
 				break 2
 			fi
@@ -497,7 +497,7 @@ do
 		done
 		sleep 2 # what is a good number?
 	done
-	echo $(date) Slot $c opened up
+	#echo $(date) Slot $c opened up
 	
 	thisl=$l
 	thisaprog=$aprog
@@ -1266,14 +1266,19 @@ setunit $totucsize
 tsize="$(printf "%.2f%-2s" "$sone" "$gunit")"
 _log "$(date -r $globalend +"$datefmt")" "pid $$: backup of $@ set completed"
 
-create "${sumfile}.tmp"
-cat "${sumfile}".[0-9]* "${sumfile}" > "${sumfile}.tmp" && \
+create "${sumfile}.tmp" "${sumfile}.total"
+if [ globalconcurrency -gt 9 -o c -gt 9 ]; then
+	sed "s/^${c}/  /" "${sumfile}".$c
+else
+	sed "s/^${c}/ /" "${sumfile}".$c
+fi > "${sumfile}".total &&
+rm "${sumfile}".$c && \
+cat "${sumfile}" "${sumfile}".[0-9]* "${sumfile}".total > "${sumfile}.tmp" && \
 mv "${sumfile}.tmp" "${sumfile}" && \
 rm "${sumfile}".*
 
 create "${logfile}.tmp"
-cat "${logfile}" "${logfile}".$c > "${logfile}.tmp" && rm "${logfile}".$c && \
-cat "${logfile}".[0-9]* >> "${logfile}.tmp" && \
+cat "${logfile}" "${logfile}".[0-9]* >> "${logfile}.tmp" && \
 mv "${logfile}.tmp" "${logfile}" && \
 rm "${logfile}".*
 
