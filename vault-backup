@@ -84,6 +84,8 @@ aopt=9
 notify="root@$(hostname)"
 notifydetail=""
 usefstatforlock=0 # warning, setting to 1 may panic system due to fstat bugs
+houraftertime=19
+hourbeforetime=6
 
 setname="$1"
 if ! [ "$setname" ]; then
@@ -197,9 +199,14 @@ bubble() {
 	cat
 	echo "$outputstop"
 }
+bccalc() {
+	local scale
+	[ "$2" ] && scale="$2" || scale=5
+	echo "scale=$scale;$1"|bc
+}
 setunit() {
 	#set -x
-	sone="$1"
+	sone=$(bccalc "$1" 0)
 
 	gunit="B "
 	local a="$sone"
@@ -236,25 +243,23 @@ sectohms() {
 	s=$((tmp - m*60))
 	printf "%3d:%02d:%02d" $h $m $s
 }
-detailsrun=0
 savedetails() {
 	#set -x
 	local s="$1" ucs="$2" fs="$3" time="$4" level="$5" lwhy="$6"
 	local h m tmp comp ratio
-	if [ s -eq 0 -o ucs -eq 0 ]; then
+	if [ "$s" = "0" -o "$ucs" = "0" -o "$ucs" = "0.00000" ]; then
 		comp=0
 		ratio=0
 	else
-		comp=$(echo "scale=2;100*$s/$ucs"|bc)
+		comp=$(echo "scale=2;(100*$s)/$ucs"|bc)
 		ratio=$(echo "scale=2;100-$comp"|bc)
 	fi
-	setunit $ucs
+	setunit "$ucs"
 	ucunit="$gunit"
 	ucsize="$sone"
-	setunit $s
+	setunit "$s"
 	unit="$gunit"
 	size="$sone"
-	[ detailsrun -eq 1 ] && details="$details\n"
 	local uctime=0 ctime=0
 	if [ time -ne 0 ]; then
 		uctime="$(echo "scale=2;$ucsize/$time"|bc)"
@@ -268,14 +273,19 @@ savedetails() {
 	if [ "$lwhy" ]; then
 		details="$details (Failed $lwhy, $retrycount tries)"
 	fi
-	detailsrun=1
+	echo "$details" >> ${sumfile}
+	details=""
 }
 
 details=""
 logfile="$datadir/$setname.$(date +%Y%m%d%H%M%S).log"
 sumfile="${logfile%*.log}.summary"
 :> $logfile
-:> $sumfile
+{
+echo "  Uncompressed        Compressed       Percent         Time  Level FileSystem"
+echo "     data  speed/s      data  speed/s      %      %  HH:MM:SS    hostname:/subdir"
+#cho "  43.49KB   1.01KB    7.21KB   0.16KB  16.58  83.42 200:00:43 10 (Total)"
+} > "${sumfile}"
 chflags nodump $logfile $sumfile
 _log() {
 	printf "%s %s\n" "$1" "$2" >> $logfile
@@ -431,8 +441,36 @@ pwgen=/usr/local/bin/pwgen
 why=""
 
 if [ rsynconly -eq 0 ]; then
-for f in $(sed 's/#.*$//;/^$/d' $bkd/$dumplistname)
+set -A dumps $(sed 's/#.*$//;/^$/d' $bkd/$dumplistname)
+# globalconcurrence=1 # 2 or more means parallel
+#
+# # init globaljobs[]
+# c=0
+# while [ c -lt globalconcurrence ]
+# do
+# 	globaljobs[$c]=""
+#       let c=c+1
+# done
+#
+for f in ${dumps[*]}
 do
+	# # wait for available slot
+	# while :
+	# do
+	#	c=0
+	#	while [ c -lt globalconcurrence ]
+	#	do
+	#		if [ "X${globaljobs[$c]}" = "X" ]; then
+	#			break 2
+	#		fi
+	#		if [ "$(jobs ${globaljobs[$c]} 2> /dev/null)" ]; then
+	#			continue
+	#		else
+	#			break 2
+	#		fi
+	#		sleep 2 # what is a good number?
+	#	done
+	# done
 	thisl=$l
 	thisaprog=$aprog
 	thisaopt=$aopt
@@ -960,6 +998,8 @@ do
 	;;
 	esac
 
+	(
+
 	outfile="$fn.$thisl"
 	tmpfile="$(mktemp "$datadir/$host/.$outfile.XXXXXXXXXXX")"
 	outfile="$datadir/$host/$outfile"
@@ -984,14 +1024,16 @@ do
 	;;
 	esac
 	_log "$(date -r $start +"$datefmt")" "Start of this level $thisl"
-	#echo "$tmpfile"
-	#set -x
 	trap 'unlock $trylockdir-$host;rm -f ${tmpfile}*; exit 1' 0 1 15
 	while [ retrycount -le maxretry ]; do
 		fail=0
 		if [ stderrpid -gt 0 ]; then
 			sleep 1
 			kill $stderrpid
+		fi
+		hourtime=$(date +%k)
+		if [ $hourtime -lt $houraftertime -a $hourtime -gt $hourbeforetime ]; then
+			fail=105
 		fi
 		stderrpid=0
 		if [ verbose -gt 1 ]; then
@@ -1071,6 +1113,7 @@ do
 		fi
 		totsize="$( echo $size + $totsize  | bc)"
 		totucsize="$( echo $ucsize + $totucsize | bc )"
+		echo "$size $ucsize" >> $logfile.stats
 		summdate="$(date -r $stop +"$datefmt")"
 		_log "$summdate" "Stop  of this level $thisl"
 		savedetails $size $ucsize "$f" $((stop-start)) $thisl
@@ -1098,10 +1141,11 @@ do
 		fi
 		local why
 		case "$fail" in
-		104) why="PostgreSQL access denied";;
-		103) why="password expired";;
-		102) why="DNS failure";;
 		101) why="unknown";;
+		102) why="DNS failure";;
+		103) why="password expired";;
+		104) why="PostgreSQL access denied";;
+		105) why="outside backup window";;
 		*) why="fail=$fail";;
 		esac
 		savedetails -0 -0 "$f" $((stop-start)) $thisl "$why"
@@ -1109,7 +1153,10 @@ do
 	trap 'exit 0' 0 1 15
 	unlock $trylockdir-$host
 	fi # trylock
+	) & pid=$!
+	pids="$pids $pid"
 done 
+wait $pids
 fi # rsynconly
 
 # remotemirror should be of the form
@@ -1177,15 +1224,16 @@ if [ "$remotemirror" ]; then
 fi
 globalend=$SECONDS
 globaltime=$((globalend-globalstart))
+totsize="0"
+totucsize="0"
+while read size ucsize
+do
+	totsize="$( bccalc "$size + $totsize" 0 )"
+	totucsize="$( bccalc "$ucsize + $totucsize" 0 )"
+done < $logfile.stats
 savedetails $totsize $totucsize Total $globaltime -
 setunit $totucsize
 tsize="$(printf "%.2f%-2s" "$sone" "$gunit")"
-{
-echo "  Uncompressed        Compressed       Percent         Time  Level FileSystem"
-echo "     data  speed/s      data  speed/s      %      %  HH:MM:SS    hostname:/subdir"
-#cho "  43.49KB   1.01KB    7.21KB   0.16KB  16.58  83.42 200:00:43 10 (Total)"
-echo "$details"
-} > "${sumfile}"
 _log "$(date -r $globalend +"$datefmt")" "pid $$: backup of $@ set completed"
 
 # Mail Notification(s)
