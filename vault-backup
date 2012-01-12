@@ -1308,7 +1308,7 @@ create "${sumfile}.tmp" "${sumfile}.total"
 if [ globalconcurrency -lt 10 -a c -gt 9 ]; then
 	sed "s/^${c}/ /" "${sumfile}".$c
 else
-	if [ globalconcurrency -gt 9 -o c -gt 9 ]; then
+	if [ globalconcurrency -gt 9 -a c -gt 9 ]; then
 		sed "s/^${c}/  /" "${sumfile}".$c
 	else
 		sed "s/^${c}/ /" "${sumfile}".$c
