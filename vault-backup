@@ -244,7 +244,7 @@ sectohms() {
 	printf "%3d:%02d:%02d" $h $m $s
 }
 savedetails() {
-	set -x
+	#set -x
 	local s="$1" ucs="$2" fs="$3" time="$4" level="$5" lwhy="$6"
 	local h m tmp comp ratio
 	if [ "$s" = "0" -o "$ucs" = "0" -o "$ucs" = "0.00000" ]; then
@@ -1113,10 +1113,10 @@ do
 		fi
 		totsize="$( echo $size + $totsize  | bc)"
 		totucsize="$( echo $ucsize + $totucsize | bc )"
+		echo "$size $ucsize" >> $logfile.stats
 		summdate="$(date -r $stop +"$datefmt")"
 		_log "$summdate" "Stop  of this level $thisl"
 		savedetails $size $ucsize "$f" $((stop-start)) $thisl
-		echo "$size $ucsize" >> $logfile.stats
 	else
 		if [ -f "$tmpfile.stderr" ]; then
 		    {
@@ -1153,8 +1153,10 @@ do
 	trap 'exit 0' 0 1 15
 	unlock $trylockdir-$host
 	fi # trylock
-	)
+	) & pid=$!
+	pids="$pids $pid"
 done 
+wait $pids
 fi # rsynconly
 
 # remotemirror should be of the form
@@ -1222,19 +1224,14 @@ if [ "$remotemirror" ]; then
 fi
 globalend=$SECONDS
 globaltime=$((globalend-globalstart))
-#savedetails $totsize $totucsize Total $globaltime -
-totsize="0.0"
-totucsize="0.0"
+totsize="0"
+totucsize="0"
 while read size ucsize
 do
-	#echo "read size=$size ucsize=$ucsize"
-	totsize="$( bccalc "$size + $totsize" )"
-	totucsize="$( bccalc "$ucsize + $totucsize" )"
-	#echo "totsize=$totsize totucsize=$totucsize"
+	totsize="$( bccalc "$size + $totsize" 0 )"
+	totucsize="$( bccalc "$ucsize + $totucsize" 0 )"
 done < $logfile.stats
-#set -x
 savedetails $totsize $totucsize Total $globaltime -
-#set +x
 setunit $totucsize
 tsize="$(printf "%.2f%-2s" "$sone" "$gunit")"
 _log "$(date -r $globalend +"$datefmt")" "pid $$: backup of $@ set completed"
