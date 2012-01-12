@@ -22,7 +22,7 @@
 # does for keys and arguments etc
 
 usage() {
-	echo "vault-updatelist [-s [user@]ssh_host] ] dumplist pattern pathpre"
+	echo "vault-updatelist [-s [user@]sshhost] ] dumplist pattern pathpre"
 	echo
 	echo "For example:"
 	echo
@@ -32,17 +32,55 @@ usage() {
 	echo
 	echo "   vault-updatelist -s root@db1 db '/dbs/*.dbs' sshtar://root@db1"
 }
+sshcmdline() {
+	local scmd="ssh $sshxtra" user="$1" host="$2" addr="$3"
+	if [ "$thisaprog" != "none" ]; then
+		scmd="$scmd -C"
+	fi
+	if [ -f $bkd/${host}_sshconfig ]; then
+		scmd="$scmd -F $bkd/${host}_sshconfig "
+	fi
+	scmd="$scmd -i $bkd/${host}_sshkey "
+	if ! [ "$host" = "$addr" ]; then
+		scmd="$scmd -o hostkeyalias=$host"
+	fi
+	if [ "$user" -a "$host" ]; then
+		scmd="$scmd $user@$addr "
+	else if [ "$host" ]; then
+		scmd="$scmd $addr "
+	fi; fi
+	echo "$scmd"
+}
 
 if [ "$1" = "-s" ]; then
-	ssh_host="$2"
+	sshxtra="-o BatchMode=yes -o ServerAliveInterval=3600 -o ServerAliveCountMax=23 -o TCPKeepAlive=no "
+	sshinfo="$2"
+	if [ "$(echo "$2" | grep "@")" ]; then
+		sshhost=$(echo "$2"|sed 's/^.*@//')
+		sshuser=$(echo "$2"|sed 's/@.*$//')
+	else
+		sshhost="$2"
+		sshuser=""
+	fi
+	scmd=$(sshcmdline "$sshuser" "$sshhost" "$sshhost")
 	shift
 	shift
+	dumplist="$1"
+	pattern="$2"
+	pathpre="$3"
+	parsepattern() {
+		$scmd echo "$pattern"
+	}
+
+else
+	parsepattern() {
+		echo $pattern
+	}
 fi
 dumplist="$1"
 pattern="$2"
 pathpre="$3"
-
-for path in $pattern
+for path in $(parsepattern)
 do
-        echo "$pathpre$path"
+	echo "$pathpre$path"
 done
