@@ -489,6 +489,14 @@ if ! [ verbose -eq 0 ]; then
 	tail -f "$logfile" >> $tty & tailpid="$tailpid $!"
 fi
 
+# for N concurrent backups, should not do two or more concurrent to the same host if
+# alternate hosts are "waiting"
+
+# fill in hostof[$dumpjob]=dumps[$dumpjob]
+# keep track of hosts in other processes
+# iterate over hostof array till a nonempty nonmatching slot exists
+# zero records once job started
+
 dumpjob=0
 globallogfile="$logfile"
 while [ dumpjob -lt ${#dumps[*]} ]
