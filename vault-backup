@@ -452,6 +452,7 @@ hostinc() {
 	else
 		let hostruncount[$c]=hostruncount[$c]+1
 	fi
+	#echo hostinc: $host ${hostruncount[$c]} > /dev/tty
 }
 hostdec() {
 	#echo "hostdec: $@" > /dev/tty
@@ -471,6 +472,7 @@ hostdec() {
 	else
 		let hostruncount[$c]=hostruncount[$c]-1
 	fi
+	#echo hostdec: $host ${hostruncount[$c]} > /dev/tty
 }
 hostconcount() {
 	#echo "hostconcount: $@" > /dev/tty
@@ -488,6 +490,7 @@ hostconcount() {
 	else
 		echo ${hostruncount[$c]}
 	fi
+	#echo hostconcount: $host ${hostruncount[$c]} > /dev/tty
 }
 pingwait=2
 pingcount=2
@@ -573,7 +576,7 @@ do
 	while :
 	do
 		c=0
-		
+		#set -x
 		while [ c -lt globalconcurrence ]
 		do
 			#echo $(date) Checking global concurrence..c=$c
@@ -588,6 +591,7 @@ do
 			#echo $(date;echo -n " ";jobs ${globaljobs[$c]})
 			let c=c+1
 		done
+		set +x
 		sleep $loopdelay
 	done
 	#echo $(date) Slot $c opened up
@@ -601,7 +605,7 @@ do
 			let testjob=testjob+1
 			continue
 		fi
-		if [ $(hostconcount "${hostof[$testjob]}") -gt hostconcurrence ]; then
+		if [ $(hostconcount "${hostof[$testjob]}") -ge hostconcurrence ]; then
 			let testjob=testjob+1
 			continue
 		fi
@@ -614,15 +618,35 @@ do
 		continue
 	fi
 
+	thisl=$l
+	start=$SECONDS
+
+	# only lock each host once per backup run
+	skip=0
+	if ! isin "${hostof[$dumpjob]}" $hosts; then
+		if ! trylock ${hostof[$dumpjob]}; then
+			log "Skipping '$f' (locked)"
+			stop=$SECONDS
+			savedetails -0 -0 "$f" $((stop-start)) $thisl "host locked"
+			rm -f ${tmpfile}*
+			skip=1
+		else
+			hosts="$hosts ${hostof[$dumpjob]}"
+		fi
+	else
+		log "Skipping lock check for host $host, already locked for this run"
+	fi
+
+	#set -x
 	let dumpcount=dumpcount+1
 	globalhostof[$c]=${hostof[$dumpjob]}
 	hostinc "${globalhostof[$c]}"
 	started[$dumpjob]=1
 
 	f=${dumps[$dumpjob]}
+	set +x
 	logfile="$logfile.$c"
 	
-	thisl=$l
 	thisaprog=$aprog
 	thisaopt=$aopt
 	case "$f" in
@@ -1154,24 +1178,6 @@ do
 
 	retrycount=0
 	stderrpid=0
-	start=$SECONDS
-
-
-	# only lock each host once per backup run
-	skip=0
-	if ! isin "$host" $hosts; then
-		if ! trylock $host; then
-			log "Skipping '$f' (locked)"
-			stop=$SECONDS
-			savedetails -0 -0 "$f" $((stop-start)) $thisl "host locked"
-			rm -f ${tmpfile}*
-			skip=1
-		else
-			hosts="$hosts $host"
-		fi
-	else
-		log "Skipping lock check for host $host, already locked for this run"
-	fi
 
 	if [ skip -eq 0 ]; then
 
@@ -1315,7 +1321,9 @@ do
 		savedetails -0 -0 "$f" $((stop-start)) $thisl "$why"
 	fi
 	) & pid=$!
+	#set -x
 	globaljobs[$c]=$pid
+	set +x
 	fi # skip=0
 done 
 logfile="$globallogfile"
