@@ -86,7 +86,8 @@ notifydetail=""
 usefstatforlock=0 # warning, setting to 1 may panic system due to fstat bugs
 houraftertime=19
 hourbeforetime=6
-globalconcurrence=1 # 2 or more means parallel
+globalconcurrence=1 # how many concurrent runs globally?
+hostconcurrence=1 # how many concurrent runs per host?
 
 setname="$1"
 if ! [ "$setname" ]; then
@@ -205,7 +206,6 @@ bccalc() {
 	echo "scale=$scale;$1"|bc
 }
 setunit() {
-	#set -x
 	sone=$(bccalc "$1" 0)
 
 	gunit="B "
@@ -304,7 +304,9 @@ create $logfile $sumfile
 echo "Start Date: $(date +"%a, %e %b %Y %H:%M:%S %z (%Z)")"
 echo
 [ globalconcurrence -gt 1 ] && {
-	echo "Parallel concurrent backups = $globalconcurrence"
+	echo "Max global conurrence   = $globalconcurrence"
+	echo "Max per host conurrence = $hostconcurrence"
+	echo
 	[ globalconcurrence -gt 9 ] && echo -n " "
 	echo -n "P"
 }
@@ -320,7 +322,7 @@ _log() {
 log() {
 	local xtra=""
 	if [ globalconcurrence -gt 1 ]; then
-		xtra="${dumpjob} "
+		xtra="${dumpcount} "
 	fi
 	_log "$(date +"$datefmt")" "$xtra$@"
 }
@@ -431,6 +433,62 @@ netcachecheck() {
 		let i=i+1
 	done
 }
+set -A hostrunname
+set -A hostruncount
+hostinc() {
+	#echo "hostinc: $@" > /dev/tty
+	local host=$1 c=0 found=0 i=${#hostrunname[*]}
+	while [ c -lt i ]
+	do
+		if [[ $host == ${hostrunname[$c]} ]]; then
+			found=1
+			break
+		fi
+		let c=c+1
+	done
+	if [ found -eq 0 ]; then
+		hostrunname[$i]=$host
+		hostruncount[$i]=1
+	else
+		let hostruncount[$c]=hostruncount[$c]+1
+	fi
+}
+hostdec() {
+	#echo "hostdec: $@" > /dev/tty
+	local host=$1 c=0 found=0 i=${#hostrunname[*]}
+	while [ c -lt i ]
+	do
+		if [[ $host == ${hostrunname[$c]} ]]; then
+			found=1
+			break
+		fi
+		let c=c+1
+	done
+	if [ found -eq 0 ]; then
+		log "WARNING: hostdec is called on a non existent host: $host"
+		hostrunname[$i]=$host
+		hostruncount[$i]=0
+	else
+		let hostruncount[$c]=hostruncount[$c]-1
+	fi
+}
+hostconcount() {
+	#echo "hostconcount: $@" > /dev/tty
+	local host=$1 c=0 found=0 i=${#hostrunname[*]}
+	while [ c -lt i ]
+	do
+		if [[ $host == ${hostrunname[$c]} ]]; then
+			found=1
+			break
+		fi
+		let c=c+1
+	done
+	if [ found -eq 0 ]; then
+		echo 0
+	else
+		echo ${hostruncount[$c]}
+	fi
+}
 pingwait=2
 pingcount=2
 # in the event a hostname resolves to multiple addresses, fast-track the
@@ -496,17 +554,26 @@ fi
 # keep track of hosts in other processes
 # iterate over hostof array till a nonempty nonmatching slot exists
 # zero records once job started
-
 dumpjob=0
-globallogfile="$logfile"
 while [ dumpjob -lt ${#dumps[*]} ]
 do
+	hostof[$dumpjob]=$(echo "${dumps[$dumpjob]}" | perl -e '$s=<stdin>;$s =~ /^[a-z]+:\/(\/[^\@]\@|\/)([^\/]+)\//;print $2;')
+	started[$dumpjob]=0
+	#printf "%3d: hostof = \"%s\", dump = \"%s\"\n" $dumpjob "${hostof[$dumpjob]}" "${dumps[$dumpjob]}"
+	let dumpjob=dumpjob+1
+done
+
+dumpcount=0
+globallogfile="$logfile"
+loopdelay=2 # what is a good number?
+while [ dumpcount -lt ${#dumps[*]} ]
+do
 	logfile="$globallogfile"
-	f=${dumps[$dumpjob]}
 	# wait for available slot
 	while :
 	do
 		c=0
+		
 		while [ c -lt globalconcurrence ]
 		do
 			#echo $(date) Checking global concurrence..c=$c
@@ -514,15 +581,45 @@ do
 				break 2
 			fi
 			if ! [ "$(jobs ${globaljobs[$c]} 2> /dev/null)" ]; then
+				hostdec "${globalhostof[$c]}"
+				globaljobs[$c]=""
 				break 2
 			fi
 			#echo $(date;echo -n " ";jobs ${globaljobs[$c]})
 			let c=c+1
 		done
-		sleep 2 # what is a good number?
+		sleep $loopdelay
 	done
 	#echo $(date) Slot $c opened up
 
+	# now that we have an available slot, search for a dump that matches hostconcurrence settings
+	dumpjob=""
+	testjob=0
+	while [ testjob -lt ${#dumps[*]} ]
+	do
+		if [ ${started[$testjob]} -eq 1 ]; then
+			let testjob=testjob+1
+			continue
+		fi
+		if [ $(hostconcount "${hostof[$testjob]}") -gt hostconcurrence ]; then
+			let testjob=testjob+1
+			continue
+		fi
+		dumpjob=$testjob
+		break
+	done
+	if [ "X$dumpjob" = "X" ]; then
+		echo "max hostconcurrence reached for all hosts, pausing ${loopdelay}s to try again"
+		sleep $loopdelay
+		continue
+	fi
+
+	let dumpcount=dumpcount+1
+	globalhostof[$c]=${hostof[$dumpjob]}
+	hostinc "${globalhostof[$c]}"
+	started[$dumpjob]=1
+
+	f=${dumps[$dumpjob]}
 	logfile="$logfile.$c"
 	
 	thisl=$l
@@ -682,7 +779,6 @@ do
 		f="$host:$file"
 		sshhost=$(netcheckhost "$host")
 		backupmethod() {
-			#set -x
 			scmd=$(sshcmdline $authuser $host $sshhost)
 			# would like -O but FreeBSD doesn't have it, bah
 			cmd="cd "\$dir" && find \"\$path\" -xdev %s -print | pax -wdv || exit 1"
@@ -766,7 +862,6 @@ do
 			cmd=$(sshcmdline $authuser $host $sshhost)
 			cmd="$cmd /usr/sbin/backup -${thisl}uf - $file "
 			echo "$cmd" > /dev/stderr
-			#set -x
 			$cmd && echo "$successcookie" > /dev/stderr || echo "returned $?" > /dev/stderr
 		}
 		listmethod() {
@@ -1144,9 +1239,13 @@ do
 		if [ "$( tail "$outfile.stderr" | grep "no address associated" )" ]
 		then
 			fail=102
-			echo "DNS failure for '$f', Retrying..."
+			log "DNS failure for '$f', Retrying..."
 			let retrycount=retrycount+1
 			continue
+		fi
+		if [ "$( tail "$outfile.stderr" | egrep "^Terminated$" )" ]; then
+			fail=106
+			log "Terminated"
 		fi
 		break
 	done
@@ -1210,15 +1309,14 @@ do
 		103) why="password expired";;
 		104) why="PostgreSQL access denied";;
 		105) why="outside backup window";;
+		106) why="Terminated/killed";;
 		*) why="fail=$fail";;
 		esac
 		savedetails -0 -0 "$f" $((stop-start)) $thisl "$why"
 	fi
 	) & pid=$!
 	globaljobs[$c]=$pid
-	pids="$pids $pid"
 	fi # skip=0
-	let dumpjob=dumpjob+1
 done 
 logfile="$globallogfile"
 wait ${globaljobs[*]}
