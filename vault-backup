@@ -609,7 +609,7 @@ do
 		break
 	done
 	if [ "X$dumpjob" = "X" ]; then
-		echo "max hostconcurrence reached for all hosts, pausing ${loopdelay}s to try again"
+		#echo "max hostconcurrence reached for all hosts, pausing ${loopdelay}s to try again"
 		sleep $loopdelay
 		continue
 	fi
