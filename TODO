@@ -1,19 +1,13 @@
 - figure out how to handle tar backups (including samba) where perms may
   have changed since last level and thus files are not being backed up
   because of this (per file storage/tracking/blocks dedup ?)
-- permit no compression as an option (especially useful for gpg backups)
 - save borked backup as ${filename}.borked, ${filename}.borked1, etc and remove
   only if a succssful backup is done
-- load dumplist into an array vs for.. in $(sed ../dumplist)
 - afs
   - permit specifying '*' for volume names, i.e. fdc.finance.*
 - sanity checking of syntax, i.e. invalid typical things:
   sshdump://host/ (no user present)
   dump://user@host/ (user present)
-- separate uncomp data vs uncomp speed units. example:
-   02/06/2008 13:51:08 CST uncomp. 271.98GB vs comp. 260.63GB
-   02/06/2008 13:51:08 CST uncomp. 0.00GB/s vs comp. 0.00GB/s
-   02/06/2008 13:51:08 CST comp. 95.82%, ratio 4.18%
 - automate samba password reset procedure
   echo "$oldpass\n$newpass\n$newpass" | smbpasswd -r servername -Uusername -s
 - handle 'session setup failed: NT_STATUS_PASSWORD_EXPIRED'
@@ -27,17 +21,10 @@
     - consider merits of storing as a list vs differential list?
     - notice when files move location
   - keep track of permissions and/or acl's where applicable
-- backup the local system
-  x dump://hostname/dir
-    x hostname is only for the dir creation
-    - fix the level>0 time issue
 - remote backup security
   - timestamp/auth info is xfered by execing a shell remotely
   - create a wrapper program to check carefully
 - concurrency
- - 1st implement rough `maxconcurrence' per backup set
-  - look at fetchitdave for inspiration
- - 2nd implement `maxconcurrence' per host and per backup set
  - setup level 0 backups in one queue, non level 0 in another, to
    permit new hosts etc to not keep level>0 backups from happening for days
 - move filelist creation earlier, so .host_filesyst.level.filelist is moved
@@ -46,18 +33,12 @@
    so that reading the data happens as is it written to the disk, not
    reading it back causing more disk io
 
-- verify collections don't have more than one backup process running,
-   so backups that take more than 24hrs will block other backups from
-   running
-  - almost makes some sense to have levels somewhat automatic, so one
-    does not end up skipping level 1's for example because the night before's
-    backup took too long
 - backup-addhost / backup
  - implement 'df' output on the host to list partitions to potentially backup
  - permit copying the authorized_keys file into place and setting up the
    remote backup script
 
-- implement archiving to tape or other storage, e.g. epitome
+- implement archiving to tape or other storage, e.g. epitome, ftp
 - update sshsmb to match smb regarding smbshare/smbdir
 - write recover script to restore data
   - for 'vos dump' output, there is one line of text to remove, something like
@@ -68,10 +49,6 @@
 - ability to backup databases (PostgreSQL, MySQL, etc)
 
 As spoken to a client:
- - the ability to set a parallel variable per host and per backup system,
-   to backup multiple systems simultaneously; serially backing up systems
-   when one system hangs (i.e. dump -L on FreeBSD) does not let things
-   backup as expected
  - the ability to set a timeout on each backup process if it has not returned
    data within a timeout interval  
  - creating a 'recover' command to automate much of the data recovering phase
@@ -82,16 +59,9 @@ As spoken to a client:
  - compress via 'gzip' on the client instead of via ssh -C on the client,
    decompressing on the backup host, and then re-compressing on the backup     
    host
- - permit alternate compression mechanisms, lzma is best but chews cpu like
-   a banshee  
- - integrate gpg for encrypted public private key backups
  - integrate openssl for passphrase encrypted backups
  - implement archiving to tape
 
-- check space used by the archive vs the data storage, if level0 is much
-  larger and days since level0 is greater than x, new level0
-- each system backed up can fit in one column, the stats output
-  eventually shrink the output to columns
 - use size of filesystem (`df' like info, have to implement for all
   filesystems supported, samba, afs, ..) to determine when to bump
   back to level 0
@@ -111,6 +81,38 @@ As spoken to a client:
   remote compression prior to encryption as well as remote file
   listing in a separate file descriptor
 
+01/13/2012 (as of this date the below are done, not meaning done this day)
+- concurrency
+ - 1st implement rough `maxconcurrence' per backup set
+  - look at fetchitdave for inspiration
+ - 2nd implement `maxconcurrence' per host and per backup set
+- the ability to set a parallel variable per host and per backup system,
+  to backup multiple systems simultaneously; serially backing up systems
+  when one system hangs (i.e. dump -L on FreeBSD) does not let things
+  backup as expected
+- check space used by the archive vs the data storage, if level0 is much
+  larger and days since level0 is greater than x, new level0
+- integrate gpg for encrypted public private key backups
+- permit alternate compression mechanisms, lzma is best but chews cpu like
+  a banshee  
+- each system backed up can fit in one column, the stats output
+  eventually shrink the output to columns
+- backup the local system
+  x dump://hostname/dir
+    x hostname is only for the dir creation
+    x fix the level>0 time issue
+- verify collections don't have more than one backup process running,
+   so backups that take more than 24hrs will block other backups from
+   running
+  - almost makes some sense to have levels somewhat automatic, so one
+    does not end up skipping level 1's for example because the night before's
+    backup took too long
+- permit no compression as an option (especially useful for gpg backups)
+- load dumplist into an array vs for.. in $(sed ../dumplist)
+- separate uncomp data vs uncomp speed units. example:
+   02/06/2008 13:51:08 CST uncomp. 271.98GB vs comp. 260.63GB
+   02/06/2008 13:51:08 CST uncomp. 0.00GB/s vs comp. 0.00GB/s
+   02/06/2008 13:51:08 CST comp. 95.82%, ratio 4.18%
 10/10/2008
 x error cleanup, don't leave unfinished backups lying around
   x use trap
