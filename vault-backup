@@ -1406,7 +1406,6 @@ savedetails $totsize $totucsize Total $globaltime -
 setunit $totucsize
 tsize="$(printf "%.2f%-2s" "$sone" "$gunit")"
 _log "$(date -r $globalend +"$datefmt")" "pid $$: backup of $setname$dumplistsubj set completed"
-}
 
 [ globalconcurrency -gt 1 ] && hostpos=9 || hostpos=8
 
@@ -1448,6 +1447,7 @@ if [ "$notifydetail" ]; then
 		cat "${logfile}"
 	} | mail -s "$subject (detailed)" $notifydetail
 fi
+}
 
 if [ "$tailpid" != "0" ]; then
 	sleep 10
