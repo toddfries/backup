@@ -1,0 +1,1478 @@
+#!/bin/ksh
+
+# Copyright (c) 2001-2010 Todd T. Fries <todd@fries.net>
+#
+# Permission to use, copy, modify, and distribute this software for any
+# purpose with or without fee is hereby granted, provided that the above
+# copyright notice and this permission notice appear in all copies.
+#
+# THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+# WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+# MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+# ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+# WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+# ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+# OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+
+user=$(awk -v id=`id -u` -F: '$3 == id {print $1}' /etc/passwd)
+if [ "$user" != "_backup" ]; then
+	echo "This script should only be run as user _backup"
+	exit 1
+fi
+
+rsynconly=0
+verbose=0
+tty=`tty 2>&1`
+if [ "$tty" = "not a tty" ]; then
+	tty=/dev/null
+else
+	tty=/dev/tty
+fi
+while [ "$1" ]
+do
+	case "$1" in
+	-r)
+		# rsync only run
+		rsynconly=1
+		shift
+	;;
+	-v)
+		# verbose, in this case, output details to tty
+		let verbose=verbose+1
+		shift
+	;;
+	*)
+		break
+	;;
+	esac
+done
+
+
+# Tower of Hanoi
+# 0 2 1 4 3 6 5 8 7 8 9 <-- backup level
+# x 6 0 1 2 3 4 5       <-- day of week
+
+# The `Tower of Hanoi' would be keeping multiple redundant copies of data,
+# but require multiple recoveries in the event something needed to be
+# recovered.
+
+# The below does no redundant copies and only requires two restores max
+# recover any lost data, and archives one month prior of a full backup
+
+#
+# default over-ridable variables
+#
+
+# 0 / 7 is Sunday
+
+# weekdays    0 1 2 3 4 5 6 7
+set -A levels 6 5 4 3 2 1 7 6
+
+# to do inc only and no redundancy
+#set -A levels 3 4 5 6 7 1 2 3
+
+outputstart=",--------------------------------------------"
+outputstop="\`--------------------------------------------"
+datefmt="%m/%d/%Y %H:%M:%S %Z"
+successcookie="$(echo "Success.$RANDOM$RANDOM$RANDOM.pid$$")"
+maxretry=3
+maxhist=0
+# what percentage factor of level0 should level1 be before we do a new level0
+factor=0.6
+aprog=gzip
+aopt=9
+notify="root@$(hostname)"
+notifydetail=""
+usefstatforlock=0 # warning, setting to 1 may panic system due to fstat bugs
+houraftertime=19
+hourbeforetime=6
+globalconcurrence=1 # how many concurrent runs globally?
+hostconcurrence=1 # how many concurrent runs per host?
+
+setname="$1"
+if ! [ "$setname" ]; then
+	echo "Usage: $0 backupsetname [<dumplistname>]"
+	exit 2
+fi
+
+# backup directory
+bkd="/etc/backup/$setname"
+
+if ! [ -d "$bkd" ]; then
+	echo "$bkd directory does not exist!"
+	exit 3
+fi
+dumplistname="dumplist"
+if [ "$2" ]; then
+	# XXX once all users have converted to dumplist.foo -> foo,
+	#     remove $bkd/$2 case
+	if [ -f "$bkd/$2" ]; then
+		dumplistname="$2"
+		dumplistsubj="/$2"
+	else
+		if [ -f "$bkd/${dumplistname}.$2" ]; then
+			dumplistname="${dumplistname}.$2"
+			dumplistsubj="/$2"
+		else
+			echo "dumplist $2 not found!"
+			exit 1
+		fi
+	fi
+else
+	dumplistsubj=""
+fi
+if ! [ -f "$bkd/$dumplistname" ]; then
+	echo "$bkd/$dumplistname file does not exist!"
+	exit 4
+fi
+if [ -f "$bkd/conf" ]; then
+	. $bkd/conf
+fi
+
+if [ -d "$datadir" ]; then
+	cd $datadir
+else
+	echo "$datadir in $bkd/conf does not exist!"
+	exit 5
+fi
+
+sshxtra="$sshxtra -o BatchMode=yes -o ServerAliveInterval=3600 -o ServerAliveCountMax=23 -o TCPKeepAlive=no "
+
+#
+# vars not overrideable
+#
+
+# Try to acquire lock
+trylockdir=$datadir/.LOCK.$setname-$dumplistname.try
+hardlockdir=$datadir/.LOCK.$setname-$dumplistname.hard
+hosts=""
+trap 'for h in $hosts; do unlock $trylockdir-$host;done; for f in tmpfiles; do rm -f $f; done; exit 1' 0 1 15
+hardlock() {
+	local lockdir=$1
+	while ! mkdir $lockdir > /dev/null 2>&1
+	do
+		sleep 0.$((RANDOM%9+1))
+	done
+	if [ verbose -gt 2 ]; then
+		log "hardlocked $lockdir"
+	fi
+}
+trylock() {
+	local host=$1
+	local lockdir=${trylockdir}-$host ret=0
+	if ! mkdir $lockdir > /dev/null 2>&1
+	then
+	    # XXX remove once fstat no longer crashes%!@#$!%@#$ the system
+	    if [ usefstatforlock -gt 0 ]; then
+		if [ "$(fstat $lockdir/running| grep -v "^USER")" ]
+		then
+			ret=1
+		fi
+	    else
+		ret=1
+	    fi
+	fi
+	if [ ret -gt 0 ]; then
+		if [ verbose -gt 2 ]; then
+			log "trylock: unable to acquire lock $lockdir"
+		fi
+	else
+		hardlock $hardlockdir-$host
+		exec 4> $lockdir/running
+		if [ verbose -gt 2 ]; then
+			log "trylock: acquired lock $lockdir"
+		fi
+		unlock $hardlockdir-$host
+	fi
+	return $ret
+}
+unlock() {
+	local lockdir=$1
+	if [ -d $lockdir ]; then
+		rm -rf $lockdir
+		if [ verbose -gt 2 ]; then
+			log "unlocked $lockdir"
+		fi
+	fi
+}
+bubble() {
+	echo "$outputstart"
+	cat
+	echo "$outputstop"
+}
+bccalc() {
+	local scale
+	[ "$2" ] && scale="$2" || scale=5
+	echo "scale=$scale;$1"|bc
+}
+setunit() {
+	sone=$(bccalc "$1" 0)
+
+	gunit="B "
+	local a="$sone"
+	if [ ${#a} -gt 3 ]; then
+		sone="$(echo "scale=5;$sone/1024"|bc)"
+		gunit=KB
+	fi
+	a="${sone%.*}"
+	if [ ${#a} -gt 3 -a "$gunit" = "KB" ]; then
+		sone="$(echo "scale=5;$sone/1024"|bc)"
+		gunit=MB
+	fi
+	a="${sone%.*}"
+	if [ ${#a} -gt 3 -a "$gunit" = "MB" ]; then
+		sone="$(echo "scale=5;$sone/1024"|bc)"
+		gunit=GB
+	fi
+	a="${sone%.*}"
+	if [ ${#a} -gt 3 -a "$gunit" = "GB" ]; then
+		sone="$(echo "scale=5;$sone/1024"|bc)"
+		gunit=TB
+	fi
+	a="${sone%.*}"
+	if [ ${#a} -gt 3 -a "$gunit" = "TB" ]; then
+		sone="$(echo "scale=5;$sone/1024"|bc)"
+		gunit=PB
+	fi
+}
+sectohms() {
+	local time="$1" h m s tmp
+	h=$((time/3600))
+	tmp=$((time - h*3600))
+	m=$((tmp/60))
+	s=$((tmp - m*60))
+	printf "%3d:%02d:%02d" $h $m $s
+}
+create() {
+	while [ "$1" ]
+	do
+		if ! [ -f "$1" ]; then
+			:> "$1"
+		fi
+		chflags nodump "$1"
+		shift
+	done
+}
+savedetails() {
+	local s="$1" ucs="$2" fs="$3" time="$4" level="$5" lwhy="$6"
+	local h m tmp comp ratio
+	if [ "$s" -eq "0" -o "$ucs" -eq "0" ]; then
+		comp=0
+		ratio=0
+	else
+		comp=$(echo "scale=2;(100*$s)/$ucs"|bc)
+		ratio=$(echo "scale=2;100-$comp"|bc)
+	fi
+	setunit "$ucs"
+	ucunit="$gunit"
+	ucsize="$sone"
+	setunit "$s"
+	unit="$gunit"
+	size="$sone"
+	local uctime=0 ctime=0
+	if [ time -ne 0 ]; then
+		uctime="$(echo "scale=2;$ucsize/$time"|bc)"
+		ctime="$(echo "scale=2;$size/$time"|bc)"
+	fi
+	fmt="%7.2f%-2s %6.2f%-2s"
+	if [ globalconcurrence -gt 1 ]; then
+		if [ globalconcurrence -gt 9 ]; then
+			dfmt="%2d"
+		else
+			dfmt="%d"
+		fi
+		details=$(printf "$dfmt" $c)
+	fi
+	details="$details$(printf "$fmt" $ucsize "$ucunit" $uctime "$ucunit") "
+	details="$details$(printf "$fmt" $size $unit $ctime $unit) "
+	details="$details$(printf "%6.2f %6.2f " $comp $ratio)"
+	details="$details$(printf "%s %2s" "$(sectohms $time)" $level) $fs"
+	if [ "$lwhy" ]; then
+		details="$details (Failed $lwhy, $retrycount tries)"
+	fi
+	create $sumfile.$c
+	echo "$details" >> ${sumfile}.$c
+	details=""
+}
+
+details=""
+#logfile="$datadir/$setname.$(date +%Y%m%d%H%M%S).log"
+sumfile="${logfile%*.log}.summary"
+statfile="${logfile%*.log}.stats"
+if false; then
+create $logfile $sumfile
+{
+echo "Start Date: $(date +"%a, %e %b %Y %H:%M:%S %z (%Z)")"
+echo
+[ globalconcurrence -gt 1 ] && {
+	echo "Max global conurrence   = $globalconcurrence"
+	echo "Max per host conurrence = $hostconcurrence"
+	echo
+	[ globalconcurrence -gt 9 ] && echo -n " "
+	echo -n "P"
+}
+echo "  Uncompressed        Compressed       Percent         Time  Level FileSystem"
+[ globalconcurrence -gt 9 ] && echo -n " "
+[ globalconcurrence -gt 1 ] && echo -n "#"
+echo "     data  speed/s      data  speed/s      %      %  HH:MM:SS    hostname:/subdir"
+#cho "  43.49KB   1.01KB    7.21KB   0.16KB  16.58  83.42 200:00:43 10 (Total)"
+} > "${sumfile}"
+fi
+_log() {
+	printf "%s %s\n" "$1" "$2" >> $logfile
+}
+log() {
+	local xtra=""
+	if [ globalconcurrence -gt 1 ]; then
+		xtra="${dumpcount} "
+	fi
+	_log "$(date +"$datefmt")" "$xtra$@"
+}
+
+if false; then
+globalstart=$SECONDS
+_log "$(date -r $globalstart +"$datefmt")" "pid $$: backup of $bkd/$dumplistname list starting"
+fi
+tailpid=0
+
+dayofweek=$(date +%w)
+l=${levels[$dayofweek]}
+
+m=$( date +%d )
+
+
+rotate() {
+	if [ maxhist -eq 0 ]; then
+		return
+	fi
+	local max=$maxhist
+	local down=0
+	while [ max -gt 0 ]; do
+		let down=max-1
+		if [ -f "$1".$down ]; then
+			mv "$1".$down "$1".$max
+			mv "$1.timestamp.$down" "$1.timestamp.$max"
+			mv "$1.stderr.$down" "$1.stderr.$max"
+			mv "$1.filelist.$down" "$1.filelist.$max"
+		fi
+		let max=down
+	done
+	if [ -f "$1" ]; then
+		mv $1           $1.0
+		mv $1.timestamp $1.timestamp.0
+		mv $1.stderr    $1.stderr.0
+		mv $1.filelist  $1.filelist.0
+	fi
+}
+
+# In some manner, 'ls' output is not supported,
+# either the OS itself or it is not a number etc.
+# Only report once per run.
+reportedls=0
+reportls() {
+	local statcount=0
+	local statstr=""
+	[ reportedls -eq 1 ] && return
+	reportedls=1
+	while [ "${stat0[$statcount]}" ]; do
+		statstr="$statstr $statcount(${stat0[$statcount]})"
+		let statcount=statcount+1
+	done
+	log "Unsupported os, please report: os(`uname -s`) $statstr"
+}
+
+sshcmdline() {
+	local scmd="ssh $sshxtra" user="$1" host="$2" addr="$3"
+	if [ "$thisaprog" != "none" ]; then
+		scmd="$scmd -C"
+	fi
+	if [ -f $bkd/${host}_sshconfig ]; then
+		scmd="$scmd -F $bkd/${host}_sshconfig "
+	fi
+	scmd="$scmd -i $bkd/${host}_sshkey "
+	if ! [ "$host" = "$addr" ]; then
+		scmd="$scmd -o hostkeyalias=$host"
+	fi
+	if [ "$user" -a "$host" ]; then
+		scmd="$scmd $user@$addr "
+	else if [ "$host" ]; then
+		scmd="$scmd $addr "
+	fi; fi
+	echo "$scmd"
+}
+# test the first argument against the remaining ones, return success on a match
+isin() {
+        local   _a=$1 _b
+
+        shift
+        for _b; do
+                [[ $_a == $_b ]] && return 0
+        done
+        return 1
+}
+set -A hostcachelist
+set -A hostcacheaddr
+netcachehost() {
+	if isin "$1" ${hostcachelist[*]}; then
+		return
+	fi
+	local i=${#hostcachelist[*]}
+	hostcachelist[$i]="$1"
+	hostcacheaddr[$i]="$2"
+}
+netcachecheck() {
+	if [ ${#hostcachelist[*]} -lt 1 ]; then
+		return
+	fi
+	if ! isin "$1" ${hostcachelist[*]}; then
+		return
+	fi
+	local i=0
+	while [ i -lt ${#hostcachelist[*]} ]
+	do
+		if [ "${hostcachelist[$i]}" = "$1" ]; then
+			echo "${hostcacheaddr[$i]}"
+			return
+		fi
+		let i=i+1
+	done
+}
+set -A hostrunname
+set -A hostruncount
+hostinc() {
+	#echo "hostinc: $@" > /dev/tty
+	local host=$1 c=0 found=0 i=${#hostrunname[*]}
+	while [ c -lt i ]
+	do
+		if [[ $host == ${hostrunname[$c]} ]]; then
+			found=1
+			break
+		fi
+		let c=c+1
+	done
+	if [ found -eq 0 ]; then
+		hostrunname[$i]=$host
+		hostruncount[$i]=1
+	else
+		let hostruncount[$c]=hostruncount[$c]+1
+	fi
+	#echo hostinc: $host ${hostruncount[$c]} > /dev/tty
+}
+hostdec() {
+	#echo "hostdec: $@" > /dev/tty
+	local host=$1 c=0 found=0 i=${#hostrunname[*]}
+	while [ c -lt i ]
+	do
+		if [[ $host == ${hostrunname[$c]} ]]; then
+			found=1
+			break
+		fi
+		let c=c+1
+	done
+	if [ found -eq 0 ]; then
+		log "WARNING: hostdec is called on a non existent host: $host"
+		hostrunname[$i]=$host
+		hostruncount[$i]=0
+	else
+		let hostruncount[$c]=hostruncount[$c]-1
+	fi
+	#echo hostdec: $host ${hostruncount[$c]} > /dev/tty
+}
+hostconcount() {
+	#echo "hostconcount: $@" > /dev/tty
+	local host=$1 c=0 found=0 i=${#hostrunname[*]}
+	while [ c -lt i ]
+	do
+		if [[ $host == ${hostrunname[$c]} ]]; then
+			found=1
+			break
+		fi
+		let c=c+1
+	done
+	if [ found -eq 0 ]; then
+		echo 0
+	else
+		echo ${hostruncount[$c]}
+	fi
+	#echo hostconcount: $host ${hostruncount[$c]} > /dev/tty
+}
+pingwait=2
+pingcount=2
+# in the event a hostname resolves to multiple addresses, fast-track the
+# first one that responds to ping; in the event anything goes wrong with
+# this checking, return the original hostname passed in, so we always have
+# no worse behavior than not checking at all
+netcheckhost() {
+	local host="$1"
+	local h ignore a b c addr
+	addr=$(netcachecheck "$host")
+	if [ "$addr" ]; then
+		echo $addr
+		return
+	fi
+	local addrlist=$( host "$1" | while read h ignore a b c; do
+		[[ $a == @(*:*) ]] && echo $b || echo $c; done )
+	for addr in $(echo "$addrlist" | grep :; echo "$addrlist" | grep -v :)
+	do
+		case "$addr" in
+		*:*) cmd="ping6 -i $pingwait -c $pingcount $addr";; 
+		*)   cmd="ping -w $pingwait -c $pingcount $addr";;
+		esac
+		if $cmd > /dev/null 2>&1; then
+			netcachehost "$host" "$addr"
+			echo $addr
+			return
+		fi
+	done
+	echo "$host"
+}
+
+smbclient=/usr/local/bin/smbclient
+smbpasswd=/usr/local/bin/smbpasswd
+pwgen=/usr/local/bin/pwgen
+why=""
+
+rsynconly=1
+
+if [ rsynconly -eq 0 ]; then
+set -A dumps $(sed 's/#.*$//;/^$/d' $bkd/$dumplistname)
+#
+# init globaljobs[] .. for a maximum of globalconcurrence or ${#dumps[*]}
+c=0
+while [ c -lt globalconcurrence ]
+do
+	if [ ${#dumps[*]} -lt c ]; then
+		break
+	fi
+	globaljobs[$c]=""
+	create "$logfile".$c
+	if ! [ verbose -eq 0 ]; then
+		( tail -f "$logfile".$c | while read line; do echo "$c: $line"; done ) >> $tty &
+		tailpid="$tailpid $!"
+	fi
+	let c=c+1
+done
+if ! [ verbose -eq 0 ]; then
+	tail -f "$logfile" >> $tty & tailpid="$tailpid $!"
+fi
+
+# for N concurrent backups, should not do two or more concurrent to the same host if
+# alternate hosts are "waiting"
+
+# fill in hostof[$dumpjob]=dumps[$dumpjob]
+# keep track of hosts in other processes
+# iterate over hostof array till a nonempty nonmatching slot exists
+# zero records once job started
+dumpjob=0
+while [ dumpjob -lt ${#dumps[*]} ]
+do
+	hostof[$dumpjob]=$(echo "${dumps[$dumpjob]}" | perl -e '$s=<stdin>;$s =~ /^[a-z]+:\/(\/[^\@]\@|\/)([^\/]+)\//;print $2;')
+	started[$dumpjob]=0
+	#printf "%3d: hostof = \"%s\", dump = \"%s\"\n" $dumpjob "${hostof[$dumpjob]}" "${dumps[$dumpjob]}"
+	let dumpjob=dumpjob+1
+done
+
+dumpcount=0
+globallogfile="$logfile"
+loopdelay=2 # what is a good number?
+while [ dumpcount -lt ${#dumps[*]} ]
+do
+	logfile="$globallogfile"
+	# wait for available slot
+	while :
+	do
+		c=0
+		#set -x
+		while [ c -lt globalconcurrence ]
+		do
+			#echo $(date) Checking global concurrence..c=$c
+			if [ "X${globaljobs[$c]}" = "X" ]; then
+				break 2
+			fi
+			if ! [ "$(jobs ${globaljobs[$c]} 2> /dev/null)" ]; then
+				hostdec "${globalhostof[$c]}"
+				globaljobs[$c]=""
+				break 2
+			fi
+			#echo $(date;echo -n " ";jobs ${globaljobs[$c]})
+			let c=c+1
+		done
+		set +x
+		sleep $loopdelay
+	done
+	#echo $(date) Slot $c opened up
+
+	# now that we have an available slot, search for a dump that matches hostconcurrence settings
+	dumpjob=""
+	testjob=0
+	while [ testjob -lt ${#dumps[*]} ]
+	do
+		if [ ${started[$testjob]} -eq 1 ]; then
+			let testjob=testjob+1
+			continue
+		fi
+		if [ $(hostconcount "${hostof[$testjob]}") -ge hostconcurrence ]; then
+			let testjob=testjob+1
+			continue
+		fi
+		dumpjob=$testjob
+		break
+	done
+	if [ "X$dumpjob" = "X" ]; then
+		#echo "max hostconcurrence reached for all hosts, pausing ${loopdelay}s to try again"
+		sleep $loopdelay
+		continue
+	fi
+
+	thisl=$l
+	start=$SECONDS
+
+	# only lock each host once per backup run
+	skip=0
+	if ! isin "${hostof[$dumpjob]}" $hosts; then
+		if ! trylock ${hostof[$dumpjob]}; then
+			log "Skipping '$f' (locked)"
+			stop=$SECONDS
+			savedetails -0 -0 "$f" $((stop-start)) $thisl "host locked"
+			rm -f ${tmpfile}*
+			skip=1
+		else
+			hosts="$hosts ${hostof[$dumpjob]}"
+		fi
+	else
+		log "Skipping lock check for host $host, already locked for this run"
+	fi
+
+	#set -x
+	let dumpcount=dumpcount+1
+	globalhostof[$c]=${hostof[$dumpjob]}
+	hostinc "${globalhostof[$c]}"
+	started[$dumpjob]=1
+
+	f=${dumps[$dumpjob]}
+	set +x
+	logfile="$logfile.$c"
+	
+	thisaprog=$aprog
+	thisaopt=$aopt
+	case "$f" in
+	sshsmb*)
+		method=sshsmb
+		eval $(echo "$f" | sed 's,sshsmb://\([^@]*\)@\([^/]*\)/\([^@]*\)@\([^/]*\)/\(.*\)$,sshuser=\1 sshhost=\2 smbauth=\3 smbhost=\4 smbshare=\5,')
+		host=$sshhost
+		auth=$bkd/${sshhost}_${smbhost}smbauth$smbauth
+		smbshare="$(echo "$smbshare"|sed 's/%SPACE%/ /g')"
+		f="${sshhost}-${smbhost}_${smbshare}"
+		sshhost=$(netcheckhost "$host")
+		backupmethod() {
+			local retry="yes" retrycount=0
+			tmpsmb=`mktemp /tmp/.sshsmb.XXXXXXXXXX`
+			scmd=$(sshcmdline $sshuser $host $sshhost)
+			while [ "$retry" -a retrycount -lt 2 ]; do 
+			  : > $tmpsmb
+
+			  cmd="$smbclient -d2 -E -A%s \"//$smbhost/$smbshare\" -D / -c 'tarmode full' -Tc%s %s -"
+			  echo "$cmd" $auth $nopt "$nfil" >> $tmpsmb
+			  {
+				echo "d=\$(mktemp -d /tmp/.smbbackup.XXXXXXXXXX)"
+				echo "cd \$d"
+				if [ "$nfil" ]; then
+					echo "touch -t \"$(date -r $nfiltime +"%Y%m%d%H%M.%S")\" timestamp"
+					smbfile="timestamp"
+				else
+					smbfile=""
+				fi
+				echo "cat<<EOF>smbauth"
+				cat $auth
+				echo EOF
+				printf "$cmd" smbauth $nopt $smbfile
+				echo "&& rm -rf \$d"
+			  } | $scmd sh && echo "$successcookie" >> $tmpsmb || \
+			  echo "returned $?" >> $tmpsmb
+			  if tail -3 $tmpsmb | egrep "NT_STATUS_(PASSWORD_EXPIRED|LOGIN_FAILURE)" > /dev/null 2>&1; then
+				if [ -x $pwgen ]; then
+					cat $tmpsmb > /dev/stderr
+					oldpass=$(awk '/^password/{print $3}' $auth | tail -1)
+					newpass=$(pwgen -N 1 -s 32)
+					smbuser=$(awk '/^username/{print $3}' $auth)
+					echo "$oldpass\n$newpass\n$newpass" | $scmd $smbpasswd -r $smbhost -U$smbuser -s > $tmpsmb 2>&1
+					if grep "^Password changed for user" $tmpsmb > /dev/null; then
+						retry=""
+						echo "password = $newpass" >> $auth
+					fi
+				fi
+			  else
+				# if no errors detected.. don't retry
+				retry=""
+			  fi
+			  cat $tmpsmb > /dev/stderr
+			  let retrycount=retrycount+1
+			done
+		}
+		listmethod() {
+			tar tvzf "$outfile" | \
+				awk '/drwx/ { next } \
+				    { \
+					$1=$2=$3=$4=$5=$6=$7=$8=""; \
+					gsub("/","\\"); \
+					print }' | sed 's/^[ ]*\./\\tmp/' 
+		}
+	;;
+	smb*)
+		method=smb
+		host=$(echo "$f" | sed 's,smb://.*@\([^/]*\)/.*$,\1,')
+		auth=$bkd/${host}_smbauth$(echo "$f" | sed 's,smb://\([^@]*\)@.*$,\1,')
+		f=$(echo "$f" | sed 's/%SPACE%/ /g;s,smb://[^@]*@\([^/]*\)/\(.*\)$,//\1/\2,')
+		file="$(echo "$f" | sed 's,//[^/]*/\(.*\)$,\1,')"
+		smbshare="$(echo "$f" | sed 's,//[^/]*/\([^/]*\).*$,\1,')"
+		smbsubdir="$(echo "$f" | sed 's,//[^/]*/[^/]*\(/.*$\),\1,;s,^//.*$,,')"
+		[ "$smbsubdir" ] || smbsubdir="/"
+		#echo "host=\"$host\" smbshare=\"$smbshare\" subdir=\"$smbsubdir\""
+		backupmethod() {
+			local retry="yes" retrycount=0
+			tmpsmb=`mktemp /tmp/.smb.XXXXXXXXXX`
+			while "$retry" -a retrycount -lt 2 ]; do
+			  : > $tmpsmb
+			  echo "smbclient -d2 -E -A$auth \"//$host/$smbshare\" -D \"$smbsubdir\" -c 'tarmode full' -Tc$nopt \"$nfil\" -" > $tmpsmb
+			  if [ "$nfil" ]; then
+				$smbclient -d2 -E -A$auth "//$host/$smbshare" -D "$smbsubdir" \
+					-c 'tarmode full' -Tc$nopt "$nfil" - && echo "$successcookie" > $tmpsmb || echo "returned $?" > $tmpsmb
+			  else
+				$smbclient -d2 -E -A$auth "//$host/$smbshare" -D "$smbsubdir" \
+					-c 'tarmode full' -Tc  - && echo "$successcookie" > $tmpsmb || echo "returned $?" > $tmpsmb
+			  fi
+			  if tail -3 $tmpsmb | egrep "NT_STATUS_(PASSWORD_EXPIRED|LOGIN_FAILURE)" > /dev/null 2>&1; then
+				if [ -x $pwgen ]; then
+					cat $tmpsmb > /dev/stderr
+					oldpass=$(awk '/^password/{print $3}' $auth | tail -1)
+					newpass=$(pwgen -N 1 -s 32)
+					smbuser=$(awk '/^username/{print $3}' $auth)
+					echo "$oldpass\n$newpass\n$newpass" | $smbpasswd -r $smbhost -U$smbuser -s > $tmpsmb 2>&1
+					if grep "^Password changed for user" $tmpsmb > /dev/null; then
+						retry=""
+						echo "password = $newpass" >> $auth
+					fi
+				fi
+			  fi
+			  cat $tmpsmb > /dev/stderr
+			  let retrycount=retrycount+1
+			done
+		}
+		listmethod() {
+			tar tvzf "$outfile" | \
+				awk '/drwx/ { next } \
+				    { \
+					$1=$2=$3=$4=$5=$6=$7=$8=""; \
+					gsub("/","\\"); \
+					print }' | sed 's/^[ ]*\./\\tmp/' 
+		}
+	;;
+	tar*) # tar://host/sub/dir/or/device
+		method=tar
+		host=$(echo "$f" | sed 's,tar://\([^/]*\)/.*$,\1,')
+		file=$(echo "$f" | sed 's,tar://[^/]*\(/.*\)$,\1,')
+		f="$host:$file"
+		backupmethod() {
+			# would like -O but FreeBSD doesn't have it, bah
+			cmd="pax -Xwv "
+			if [ "$nfil" ]; then
+				cmd="$cmd -T $(date -r $nfiltime +"%Y%m%d%H%M.%S") "
+			fi
+			cmd="$cmd ."
+			echo "$cmd $file" > /dev/stderr
+			if [ -d $file ]; then
+				( cd $file; $cmd && echo "$successcookie" > /dev/stderr || echo "returned $?" > /dev/stderr  )
+			else
+				bd=$(dirname $file)
+				if [ -d $bd ]; then
+					( cd $bd; $cmd $(basename $file) && echo "$successcookie" > /dev/stderr || echo "returned $?" > /dev/stderr )
+				fi
+			fi
+		}
+		listmethod() {
+			$thisaprog -d < "$outfile" | tar -tvf - | \
+				awk '	/^d/	{next} \
+					/^\-/	{ $1="";print} \
+						{print}'
+			if [ -f "${outfile}.stderr" ]; then
+				if egrep "^pax: " "${outfile}.stderr" > /dev/null 2>&1; then
+					egrep "^pax: " "${outfile}.stderr" | bubble >> $logfile
+				fi
+			fi
+		}
+	;;
+	sshtar*) # sshtar://host/sub/dir/or/device
+		method=sshtar
+		host=$(echo "$f" | sed 's,sshtar://.*@\([^/]*\)/.*$,\1,')
+		authuser=$(echo "$f" | sed 's,sshtar://\(.*\)@.*$,\1,')
+		file=$(echo "$f" | sed 's,sshtar://.*@[^/]*\(/.*\)$,\1,')
+		f="$host:$file"
+		sshhost=$(netcheckhost "$host")
+		backupmethod() {
+			scmd=$(sshcmdline $authuser $host $sshhost)
+			# would like -O but FreeBSD doesn't have it, bah
+			cmd="cd "\$dir" && find \"\$path\" -xdev %s -print | pax -wdv || exit 1"
+			printf "authuser=$authuser nopt=$nopt nfil=$nfil\n" > /dev/stderr
+			printf "Command: " > /dev/stderr
+			{
+				echo "d=/tmp/.sshtar.$$.$RANDOM$RANDOM$RANDOM"
+				echo "mkdir \$d"
+				if [ "$nfil" ]; then
+					echo "touch -t \"$(date -r $nfiltime +"%Y%m%d%H%M.%S")\" \$d/timestamp"
+					bnfile="-newer \$d/timestamp"
+				else
+					bnfile=""
+				fi
+				echo "if [ -d \"$file\" ]; then"
+				echo "  dir=\"$file\"; path=.; [ -d \"\$dir\" ] || exit 1"
+				echo "else"
+				echo "  dir=\$(dirname \"$file\") path=\$(basename \"$file\")"
+				echo "  [ -d \"\$dir\" -a -f \"\$dir/\$path\" ] || exit 1"
+				echo "fi"
+				echo "echo \"dir=\$dir path=\$path\" 1>&2"
+				printf "$cmd\n" "$bnfile" | tee /dev/stderr
+				echo -n "cd \"\$dir\" && "
+				echo -n "find \"\$path\" -xdev -print | "
+				echo -n "{ f=0; r=0; echo startlist...; "
+				echo -n "while read name; do if [ -d \"\$name\" ]; then "
+				echo -n "let r=r+1; echo \"d \$name\"; else "
+				echo -n "let f=f+1; echo \"f \$name\"; fi; done; "
+				echo -n "echo \"stoplist... \$r dirs, \$f files\"; } 1>&2 &&" 
+				echo    "rm -rf \$d"
+			} | $scmd sh && \
+			    echo "$successcookie" > /dev/stderr || \
+			    echo "returned $?" > /dev/stderr
+		}
+		listmethod() {
+			$thisaprog -d < "$outfile" | tar -tvf - | \
+				awk '	/^d/	{next} \
+					/^\-/	{ $1="";print} \
+						{print}'
+			if [ -f "${outfile}.stderr" ]; then
+				if egrep "^pax: " "${outfile}.stderr" > /dev/null 2>&1; then
+					egrep "^pax: " "${outfile}.stderr"  | bubble >> $logfile
+				fi
+			fi
+		}
+	;;
+	dump*) # dump://host/sub/dir/or/device
+		method=dump
+		host=$(echo "$f" | sed 's,dump://\([^/]*\)/.*$,\1,')
+		file=$(echo "$f" | sed 's,dump://[^/]*\(/.*\)$,\1,')
+		f="$host:$file"
+		backupmethod() {
+			local time="" timecmd="-a"
+			cmd="/sbin/dump -h 0 "
+			case "`uname -s`" in
+			FreeBSD) cmd="$cmd -L ";;
+			esac
+			if [ "$nfil" ]; then
+				time="-T "
+				timecmd="$(date -r $nfiltime +"%a %b %e %H:%M:%S %Y")"
+			fi
+			args="-0a -f - $file"
+			echo "$cmd $time $timecmd $args" > /dev/stderr
+			$cmd $time "$timecmd" $args && echo "$successcookie" > /dev/stderr || echo "returned $?" > /dev/stderr
+		}
+		listmethod() {
+			$thisaprog -d < "$outfile" | restore -tyvf - | \
+				awk '	/^dir/	{next} \
+					/leaf/	{ $1="";print} \
+						{print}'
+		}
+	;;
+	sshbackup*) # sshbackup://user@host/sub/dir/or/device
+		method=sshbackup
+		host=$(echo "$f" | sed 's,sshbackup://.*@\([^/]*\)/.*$,\1,')
+		authuser=$(echo "$f" | sed 's,sshbackup://\(.*\)@.*$,\1,')
+		file=$(echo "$f" | sed 's,sshbackup://.*@[^/]*\(/.*\)$,\1,')
+		f="$host:$file"
+		sshhost=$(netcheckhost "$host")
+		backupmethod() {
+			cmd=$(sshcmdline $authuser $host $sshhost)
+			cmd="$cmd /usr/sbin/backup -${thisl}uf - $file "
+			echo "$cmd" > /dev/stderr
+			$cmd && echo "$successcookie" > /dev/stderr || echo "returned $?" > /dev/stderr
+		}
+		listmethod() {
+			$thisaprog -d < "$outfile" | restore -tvyf - | \
+				awk '	/^dir/	{next} \
+					/leaf/	{ $1="";print} \
+						{print}'
+		}
+	;;
+	sshbackname*) # sshbackname://user@host/sub/dir
+		method=sshbackname
+		host=$(echo "$f" | sed 's,sshbackname://.*@\([^/]*\)/.*$,\1,')
+		authuser=$(echo "$f" | sed 's,sshbackname://\(.*\)@.*$,\1,')
+		file=$(echo "$f" | sed 's,sshbackname://.*@[^/]*\(/.*\)$,\1,')
+		f="$host:$file"
+		sshhost=$(netcheckhost "$host")
+		backupmethod() {
+			local retry="yes" retrycount=0
+			tmpbn=`mktemp /tmp/.sshbn.XXXXXXXXXX`
+			scmd=$(sshcmdline $authuser $host $sshhost)
+			while [ "$retry" -a retrycount -lt 2 ]; do 
+			  : > $tmpbn
+
+			  cmd="[ -d \"$file\" ] && cd $file && find . -xdev %s -print | tee \$d/list | /usr/sbin/backup -ivf -"
+			  printf "auth=$auth nopt=$nopt nfil=$nfil\nCommand: " >> $tmpbn
+			  {
+				echo "d=/tmp/.bnbackup.$$.$RANDOM$RANDOM$RANDOM;mkdir \$d"
+				if [ "$nfil" ]; then
+					echo "touch -t \"$(date -r $nfiltime +"%Y%m%d%H%M.%S")\" \$d/timestamp"
+					bnfile="-newer \$d/timestamp"
+				else
+					bnfile=""
+				fi
+				printf "$cmd\n" "$bnfile" | tee -a $tmpbn
+				echo "echo Files:\$d 1>&2"
+				echo "cat \$d/list 1>&2"
+				#echo "rm -rf \$d"
+			  } | $scmd sh && echo "$successcookie" >> $tmpbn || \
+			  echo "returned $?" >> $tmpbn
+			  # if no reason to retry exists, no need for the while loop
+			  retry=""
+			  cat $tmpbn > /dev/stderr
+			  let retrycount=retrycount+1
+			done
+		}
+		listmethod() {
+			$thisaprog -d < "$outfile" | restore -tvyf - | \
+				awk '	/^dir/	{next} \
+					/leaf/	{ $1="";print} \
+						{print}'
+		}
+	;;
+	pgdump*) # pgdump://user@host:port/database[/-option/-option]
+		method=pgdump
+		host=$(echo "$f" | sed 's,pgdump://.*@\([^/]*\)/.*$,\1,')
+		pgport="5432"
+		pgargs=""
+		if [ "${host}" != "${host#*:}" ]; then
+			pgport=$(echo "$host" | sed 's/^.*:\(.*\)$/\1/')
+			host=$(echo "$host" | sed 's/^\(.*\):.*$/\1/')
+		fi
+		authuser=$(echo "$f" | sed 's,pgdump://\(.*\)@.*$,\1,')
+		file=$(echo "$f" | sed 's,pgdump://.*@[^/]*/\(.*\)$,\1,')
+		if [ "${file}" != "${file#*/}" ]; then
+			newfile=${file%%/*}
+			for _a in $(echo ${file#${newfile}/}|sed 's,/, ,g')
+			do
+				args="$args ${_a}"
+			done
+			file="$newfile"
+		fi
+		db=$file
+		file="PGDB-$file"
+		f="$host:$file"
+		pghost=$(netcheckhost "$host")
+		backupmethod() {
+			export PGPASSFILE=$bkd/${host}_pgpass
+			echo "PGPASSFILE=$PGPASSFILE" > /dev/stderr
+			# -Fc --compress=0 # only after all db's are 8.3.x & up
+			# similar to tar
+			cmd="/usr/local/bin/pg_dump -h $pghost -p $pgport -U$authuser -s $args $db"
+			echo "$cmd" > /dev/stderr
+			$cmd && echo "$successcookie" > /dev/stderr || echo "returned $?" > /dev/stderr
+		}
+		listmethod() {
+			# For lack of other ideas, show schema but no data
+			$thisaprog -d < "$outfile" |
+				awk '
+				/^--/		{next}
+				/^$/		{next}
+				/^CREATE TABLE/	{createtable=1}
+				/^\);$/		{createtable=0;print;next}
+				/^COPY/		{copy=1}
+				/^\\\./         {copy=0}
+				/^[A-Z]/	{if (!copy) {print}; next}
+						{if (createtable) {print}}
+			'
+		}
+	;;
+	sshgpgdump*) # sshgpgdump://user@host/sub/dir/or/device
+		method=sshgpgdump
+		host=$(echo "$f" | sed 's,sshgpgdump://.*@\([^/]*\)/.*$,\1,')
+		authuser=$(echo "$f" | sed 's,sshgpgdump://\(.*\)@.*$,\1,')
+		file=$(echo "$f" | sed 's,sshgpgdump://.*@[^/]*\(/.*\)$,\1,')
+		f="$host:$file"
+		echo "host=$host authuser=$authuser file=$file f=$f" >> $tty
+		sshhost=$(netcheckhost "$host")
+		# This mechanism over-rides 'thisa*' attributes since
+		# compressing encrypted data is pointless
+		thisaprog="none"
+		#thisaopt="1"
+		backupmethod() {
+			local time="" timecmd="-a" cmd cmd2
+			cmd=$(sshcmdline $authuser $host $sshhost)
+			{
+				
+				echo "id > /dev/stderr"
+				if [ "$nfil" ]; then
+					time="-T "
+					timecmd="$(date -r $nfiltime +"%a %b %e %H:%M:%S %Y")"
+				fi
+				args="-0a -f - $file"
+				echo " /sbin/dump -h 0 $time $timecmd $args" > /dev/stderr
+				echo " cmd=$cmd" > /dev/stderr
+				echo "/sbin/dump -h 0 $time '$timecmd' $args | $aprog -$aopt | gpg -e -r todd@fries.net -z 0"
+			} | $cmd sh && echo "$successcookie" > /dev/stderr || echo "returned $?" > /dev/stderr
+			# XXX 1. create tempdir on remote system
+			# XXX 2. copy gpg key
+			# XXX 3. save listing output remotely
+			# XXX 4. xfer listing output from remote system ?separately?
+			# XXX ?? needs perl and pipes etc ??
+		}
+		listmethod() {
+			echo "No listing for sshgpgdump implemented yet"
+		}
+	;;
+	sshdump*) # sshdump://user@host/sub/dir/or/device
+		method=sshdump
+		host=$(echo "$f" | sed 's,sshdump://[^@]*@\([^/]*\)/.*$,\1,')
+		authuser=$(echo "$f" | sed 's,sshdump://\([^@]*\)@.*$,\1,')
+		file=$(echo "$f" | sed 's,sshdump://[^@]*@[^/]*\(/.*\)$,\1,')
+		f="$host:$file"
+		sshhost=$(netcheckhost "$host")
+		backupmethod() {
+			local time="" timecmd="-a"
+			cmd=$(sshcmdline $authuser $host $sshhost)
+			cmd="$cmd /sbin/dump -h 0 "
+			if [ "$nfil" ]; then
+				time="-T "
+				timecmd="$(date -r $nfiltime +"%a %b %e %H:%M:%S %Y")"
+			fi
+			args="-0a -f - $file"
+			echo "$cmd $time $timecmd $args" > /dev/stderr
+			$cmd $time "'$timecmd'" $args && echo "$successcookie" > /dev/stderr || echo "returned $?" > /dev/stderr
+		}
+		listmethod() {
+			$thisaprog -d < "$outfile" | restore -tvyf - | \
+				awk '	/^dir/	{next} \
+					/leaf/	{ $1="";print} \
+						{print}'
+		}
+	;;
+	sshafs*) # sshafs://user@host/afsvolume
+		method=sshafs
+		host=$(echo "$f" | sed 's,sshafs://.*@\([^/]*\)/.*$,\1,')
+		authuser=$(echo "$f" | sed 's,sshafs://\(.*\)@.*$,\1,')
+		vol=$(echo "$f" | sed 's,sshafs://.*@[^/]*/\(.*\)$,\1,')
+		f="$host:$vol"
+		sshhost=$(netcheckhost "$host")
+		backupmethod() {
+			cmd=$(sshcmdline $authuser $host $sshhost)
+			cmd="$cmd /usr/local/sbin/vos "
+			$cmd backup $vol -localauth || return
+			cmd="$cmd dump ${vol}.backup "
+			if [ "$nfil" ]; then
+				cmd="$cmd -time \"$(date -r $nfiltime +"%m/%d/%Y %H:%M")\" "
+			fi
+			cmd="$cmd -localauth"
+			echo "$cmd" > /dev/stderr
+			$cmd && echo "$successcookie" > /dev/stderr || echo "returned $?" > /dev/stderr
+		}
+		listmethod() {
+			echo "No listing for sshafs implemented yet"
+		}
+	;;
+	esac
+	[ -d $host ] || mkdir $host
+	fn="$(echo "$f" | sed 's,//,,;s,[/:],_,g')"
+	log "dumping '$f' via $method"
+
+	if [ -f "$host/$fn.0" -a -f "$host/$fn.0.timestamp" ]; then
+		# Do level `thisl-1' if the last level `thisl' is sufficiently close to level `thisl'
+		# only if the timestamp of `thisl-1' is older than `thisl', incase `thisl-1' really is
+		# smaller!
+		let thisk=thisl-1
+		if [ -f "$host/$fn.${thisl}" -a -f "$host/$fn.${thisl}.timestamp" -a \
+		     -f "$host/$fn.${thisk}" -a -f "$host/$fn.${thisk}.timestamp" -a \
+			"$host/$fn.${thisk}.timestamp" -ot "$host/$fn.${thisl}.timestamp" \
+		    ]; then
+			set -A stat0 -- $(ls -ndlL "$host/$fn.$thisk")
+			set -A stat1 -- $(ls -ndlL "$host/$fn.$thisl")
+			soff=0
+			case "`uname -s`" in
+			FreeBSD) soff=4;;
+			OpenBSD) soff=4;;
+			*) reportls ;;
+			esac
+			size0=${stat0[${soff}]}
+			size1=${stat1[${soff}]}
+			# verify size0 is a number and greater than zero, or punt
+			if [ $(echo "$size0 > 0"|bc) -eq 0 ]; then
+				reportls
+				soff=0
+			fi
+			# skip calculating size if os not supported
+			if [ soff -ne 0 ]; then
+				log "level $thisk size $size0 bytes"
+				log "level $thisl size $size1 bytes"
+				# use 'bc' for math since ksh on all systems does not handle
+				# > 31bit ints, i.e. > 2gb files
+				res=$(echo "$size1 > ($size0 * $factor)"|bc)
+				if [ res -eq 1 ]; then
+					log "forcing level $thisk.. level $thisl > $(echo "$factor*100"|bc)% of level $thisk"
+					thisl=$thisk
+				else
+					log "not forcing level $thisk.. level $thisl <= $(echo "$factor*100"|bc)% of level $thisk"
+				fi
+			fi
+		fi
+	else
+		log "forcing level 0.. level 0 does not exist"
+		# Do level `0' if it does not already exist
+		thisl=0
+	fi
+
+	high=-1
+	tmp=-1
+	nopt=""
+	nfil=""
+	nfiltime="0"
+	#echo "'$f' calculating level: req/high/tmp = $thisl/$high/$tmp"
+	case $((thisl+0)) in
+	0)
+		nopt=""
+		nfil=""
+		nfiltime=""
+	;;
+	1)
+		nopt="N"
+		nfil="$host/$fn.0.timestamp"
+		nfiltime=$(stat -f%c "$nfil")
+		lastl=0
+	;;
+	[2-9])
+		# find the newest backup lower than the current level
+		# and if there is a timestamp file, use it to backup to the
+		# current level
+		high=$((thisl-1))
+		tmp=$((thisl-2))
+		while [ tmp -ge 0 ]; do
+			#echo "'$f' calculating level: req/high/tmp = $thisl/$high/$tmp"
+			tmpfile="$host/${fn}.${tmp}.timestamp"
+			highfile="$host/${fn}.${high}.timestamp"
+			if [ -f "$tmpfile" -a -f "$highfile" ] && \
+			    [ "$tmpfile" -nt "$highfile" ]; then
+				high=$tmp
+			fi
+			let tmp=tmp-1
+		done
+		if [ -f "$host/$fn.$high.timestamp" ]; then
+			nopt="N"
+			nfil="$host/$fn.$high.timestamp"
+			lastl=$high
+		else
+			if [ -f "$host/$fn.0.timestamp" ]; then
+				nopt="N"
+				nfil="$host/$fn.0.timestamp"
+				lastl=0
+			fi
+		fi
+		nfiltime=$(stat -f%c "$nfil")
+		#echo "'$f' calculated level: req/high/tmp = $thisl/$high/$tmp"
+	;;
+	esac
+
+
+	outfile="$fn.$thisl"
+	tmpfile="$(mktemp "$datadir/$host/.$outfile.XXXXXXXXXXX")"
+	outfile="$datadir/$host/$outfile"
+
+	retrycount=0
+	stderrpid=0
+
+	if [ skip -eq 0 ]; then
+
+	# Until the closing ), the below cannot presume global vars escape
+	(
+	# XXX make start= be stat of timestamp
+	create "$tmpfile.timestamp"
+	case "$thisl" in
+	0)
+	;;
+	[1-9]*)
+		_log "$(date -r $nfiltime +"$datefmt")" \
+			"Start of last level $lastl"
+	;;
+	esac
+	_log "$(date -r $start +"$datefmt")" "Start of this level $thisl"
+	while [ retrycount -le maxretry ]; do
+		fail=0
+		if [ stderrpid -gt 0 ]; then
+			sleep 1
+			sync
+			kill $stderrpid
+		fi
+		hourtime=$(date +%k)
+		if [ $hourtime -lt $houraftertime -a $hourtime -gt $hourbeforetime ]; then
+			fail=105
+		fi
+		stderrpid=0
+		create "$tmpfile" "$tmpfile.stderr"
+		if [ verbose -gt 1 ]; then
+			tail -f "$tmpfile.stderr" >> $tty & stderrpid=$!
+		fi
+		if [ "$thisaprog" = "none" ]; then
+			backupmethod
+		else
+			backupmethod | $thisaprog -$aopt
+		fi > "$tmpfile" 2> "$tmpfile.stderr"
+		if [ "$(tail -1 "$tmpfile.stderr" | egrep "$successcookie$" 2> /dev/null)" ] && \
+			! [ "$(tail "$tmpfile.stderr" | egrep -i "Connection reset by peer|Connection timed out| denied|failed|Command not found|Killed |^ssh:.*:Operation timed out" 2> /dev/null)" ]; then
+			rotate "$outfile"
+			mv "$tmpfile" "$outfile" && \
+			mv "$tmpfile.timestamp" "$outfile.timestamp" && \
+			mv "$tmpfile.stderr" "$outfile.stderr" && \
+			create "$outfile.$filelist"
+			listmethod 2> /dev/null | if [ "$thisaprog" = "none" ]; then
+			    cat
+			else
+			    $thisaprog -$thisaopt
+			fi > "$outfile.filelist"
+		else
+			fail=101
+			if [ "$(tail -2 "$tmpfile.stderr" | grep "session setup failed: NT_STATUS_PASSWORD_EXPIRED")" ]; then
+				fail=103
+				let retrycount=maxretry+1
+				log "password expired, please reset"
+				# XXX implement password reset procedure
+			fi
+			if [ "$(tail -2 "$tmpfile.stderr" | grep "no pg_hba.conf entry for host")" ]; then
+				fail=104
+			fi
+			let retrycount=retrycount+1
+			[ retrycount -le maxretry ] && log "'$f' failed, retrying... $retrycount of $maxretry"
+			continue
+		fi
+		if [ "$( tail "$outfile.stderr" | grep "no address associated" )" ]
+		then
+			fail=102
+			log "DNS failure for '$f', Retrying..."
+			let retrycount=retrycount+1
+			continue
+		fi
+		if [ "$( tail "$outfile.stderr" | egrep "^Terminated$" )" ]; then
+			fail=106
+			log "Terminated"
+		fi
+		break
+	done
+	if [ stderrpid -gt 0 ]; then
+		sleep 1
+		kill $stderrpid
+	fi
+	stop=$SECONDS
+
+	if [ -f "$outfile.stderr" -a fail -eq 0 ]; then
+		tail -4 "$outfile.stderr" | head -3 | bubble >> $logfile
+	else
+		if ! [ -f "${tmpfile}.stderr" ]; then
+		    {
+			echo "Some unknown error occurred, the output file does not exist!"
+			echo "Checked:"
+			echo "${tmpfile}.stderr"
+			echo "${outfile}.stderr"
+			ls -l ${outfile}.stderr ${tmpfile}.stderr 2>&1
+		    } | bubble >> $logfile
+		fi
+	fi
+
+	if [ -f "$outfile" -a fail -eq 0 ]; then
+		size=$(echo $(stat -f%z "$outfile")+0 | bc)
+		if [ "$thisaprog" = "none" ]; then
+			ucsize=$size
+		else
+			ucsize=$( echo $($thisaprog -d < "$outfile" | wc -c)+0 | bc)
+		fi
+		echo "$size $ucsize" >> $statfile.$c
+		summdate="$(date -r $stop +"$datefmt")"
+		_log "$summdate" "Stop  of this level $thisl"
+		savedetails $size $ucsize "$f" $((stop-start)) $thisl
+	else
+		if [ -f "$tmpfile.stderr" ]; then
+		    {
+			echo "   Fail set to $fail"
+			echo "   Looking for success cookie: $successcookie"
+			echo "   Attempted to write to:"
+			echo "$tmpfile"
+			echo "   Stderr:"
+			cat "$tmpfile.stderr"
+		    } | bubble >> $logfile
+		fi
+		log "Fail  of this level $thisl"
+		# If we have no other archive, keep this for later analysis
+		# yes, this will use more disk space on failures, but we want
+		# at least one backup even if it is partial
+		if [ -f "${outfile}" ]; then
+			rm -f "$tmpfile"*
+		else
+			mv "$tmpfile" "${outfile}-failed" && \
+			mv "$tmpfile.timestamp" "${outfile}-failed.timestamp" && \
+			mv "$tmpfile.stderr" "${outfile}-failed.stderr"
+		fi
+		local why
+		case "$fail" in
+		101) why="unknown";;
+		102) why="DNS failure";;
+		103) why="password expired";;
+		104) why="PostgreSQL access denied";;
+		105) why="outside backup window";;
+		106) why="Terminated/killed";;
+		*) why="fail=$fail";;
+		esac
+		savedetails -0 -0 "$f" $((stop-start)) $thisl "$why"
+	fi
+	) & pid=$!
+	#set -x
+	globaljobs[$c]=$pid
+	set +x
+	fi # skip=0
+done 
+logfile="$globallogfile"
+wait ${globaljobs[*]}
+for host in $hosts
+do
+	unlock $trylockdir-$host
+done
+fi # rsynconly
+
+# remotemirror should be of the form
+#  mirror://user@host/subdir
+#    or
+#  mirror:/subdir
+if [ "$remotemirror" ]; then
+	if [ "$(pgrep -u _backup rsync)" ]; then
+		log rsync already running, killing
+		pkill -u _backup rsync
+		sleep 3
+		pkill -9 -u _backup rsync
+	fi
+	if [ "$(pgrep -u _backup rsync)" ]; then
+		log not mirroring, rsync already running and not killable
+	else
+		user="" host="" dir=""
+		if [ "$(echo $remotemirror|grep @)" ]; then
+			user=$(echo $remotemirror|sed 's,mirror://\([^@]*\)@[^/]*/.*$,\1,')
+			host=$(echo $remotemirror|sed 's,mirror://[^@]*@\([^/]*\)/.*$,\1,')
+			dir=$(echo $remotemirror|sed 's,mirror://[^@]*@[^/]*\(/.*\)$,\1,')
+		else
+			dir=$(echo $remotemirror|sed 's,mirror:/*\(/.*\)$,\1,')
+		fi
+		[ "$mirrorbw" ] && bwlimit="--bwlimit=$mirrorbw"
+		location=""
+		rsyncargs=""
+		if [ "$host" ]; then
+			if [ "$user" ]; then
+				location="${user}@${host}:$dir"
+			else
+				location="${host}:$dir"
+			fi
+			tmpfile=$(mktemp $datadir/.ssh.XXXXXXXXXXX)
+			{
+				echo "#!/bin/sh" 
+				echo -n "$(sshcmdline) "
+				echo "\"\$@\""
+			} > $tmpfile
+			chmod 755 $tmpfile
+			rsyncargs="-e $tmpfile"
+		else
+			if [ "$dir" ]; then
+				if [ -d "$dir" ]; then
+					location="$dir"
+				else
+					log "Mirror dir $dir does not exist locally"
+				fi
+			fi
+		fi
+			
+		if [ "$location" ]; then
+			mirrorstart=$SECONDS
+			log "Mirroring backups to $location"
+			/usr/local/bin/rsync -rtqz --partial --inplace $bwlimit $rsyncargs \
+				--exclude=".*" $datadir/. $location
+			rm -f $tmpfile
+			mirrorstop=$SECONDS
+			log "Mirror time $((mirrorstop-mirrorstart))s"
+			savedetails -0 -0 "mirror" $((mirrorstop-mirrorstart)) -
+		else
+			log "Mirroring parse error: remotemirror=$remotemirror"
+		fi
+	fi
+fi
+if false; then
+globalstart=$SECONDS
+globalend=$SECONDS
+fi
+globaltime=$((globalend-globalstart))
+totsize="0"
+totucsize="0"
+let c=c+globalconcurrence
+cat ${statfile}.[0-9]* | {
+while read size ucsize
+do
+	totsize="$( bccalc "$size + $totsize" 0 )"
+	totucsize="$( bccalc "$ucsize + $totucsize" 0 )"
+	#echo totsize=$totsize totucsize=$totucsize
+done
+#echo totsize=$totsize totucsize=$totucsize
+savedetails $totsize $totucsize Total $globaltime -
+setunit $totucsize
+tsize="$(printf "%.2f%-2s" "$sone" "$gunit")"
+_log "$(date -r $globalend +"$datefmt")" "pid $$: backup of $setname$dumplistsubj set completed"
+
+[ globalconcurrency -gt 1 ] && hostpos=9 || hostpos=8
+
+create "${sumfile}.tmp" "${sumfile}.total"
+if [ globalconcurrency -lt 10 -a c -gt 9 ]; then
+	sed "s/^${c}/ /" "${sumfile}".$c
+else
+	if [ globalconcurrency -gt 9 -a c -gt 9 ]; then
+		sed "s/^${c}/  /" "${sumfile}".$c
+	else
+		sed "s/^${c}/ /" "${sumfile}".$c
+	fi
+fi > "${sumfile}".total &&
+rm "${sumfile}".$c && \
+{
+	cat "${sumfile}"
+	sort +$hostpos "${sumfile}".[0-9]*
+	cat "${sumfile}".total
+} > "${sumfile}.tmp" && \
+mv "${sumfile}.tmp" "${sumfile}" && \
+rm "${sumfile}".*
+
+create "${logfile}.tmp"
+cat "${logfile}" "${logfile}".[0-9]* >> "${logfile}.tmp" && \
+mv "${logfile}.tmp" "${logfile}" && \
+rm "${logfile}".*
+
+# Mail Notification(s)
+subject="vault-backup: $setname$dumplistsubj $tsize $(
+	sectohms ${globaltime}|sed 's/:/h/;s/:/m/;s/^[ ]*//;s/^0h//;s/^00m//;s/^0//'
+)s"
+{
+	cat "${sumfile}"
+} | mail -s "$subject" $notify
+if [ "$notifydetail" ]; then
+	{
+		cat "${sumfile}"
+		echo
+		cat "${logfile}"
+	} | mail -s "$subject (detailed)" $notifydetail
+fi
+}
+
+if [ "$tailpid" != "0" ]; then
+	sleep 10
+	sync
+	sleep 1
+	sync
+	kill $tailpid
+	cat "${sumfile}" > /dev/tty
+	sleep 5
+	kill -9 $tailpid
+fi
