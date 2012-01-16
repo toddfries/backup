@@ -584,6 +584,7 @@ do
 				break 2
 			fi
 			if ! [ "$(jobs ${globaljobs[$c]} 2> /dev/null)" ]; then
+				echo $(date) Slot $c finished ${globalhostof[$c]} > /dev/tty
 				hostdec "${globalhostof[$c]}"
 				globaljobs[$c]=""
 				break 2
@@ -594,7 +595,7 @@ do
 		set +x
 		sleep $loopdelay
 	done
-	#echo $(date) Slot $c opened up
+	echo $(date) Slot $c open dumpcount=$dumpcount dumps=${#dumps[*]} > /dev/tty
 
 	# now that we have an available slot, search for a dump that matches hostconcurrence settings
 	dumpjob=""
@@ -618,6 +619,8 @@ do
 		continue
 	fi
 
+	echo "$(date) Slot $c assigned to ${hostof[$dumpjob]} ${dumps[$dumpjob]}" > /dev/tty
+
 	thisl=$l
 	start=$SECONDS
 
@@ -633,8 +636,8 @@ do
 		else
 			hosts="$hosts ${hostof[$dumpjob]}"
 		fi
-	else
-		log "Skipping lock check for host $host, already locked for this run"
+	#else
+	#	log "Skipping lock check for host $host, already locked for this run"
 	fi
 
 	#set -x
