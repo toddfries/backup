@@ -329,6 +329,8 @@ log() {
 
 globalstart=$SECONDS
 _log "$(date -r $globalstart +"$datefmt")" "pid $$: backup of $bkd/$dumplistname list starting"
+log "globalstart=$globalstart"
+log "logfile=$logfile"
 tailpid=0
 
 dayofweek=$(date +%w)
@@ -613,6 +615,7 @@ do
 		dumpjob=$testjob
 		break
 	done
+	echo "$(date) Slot $c testjob=$testjob"
 	if [ "X$dumpjob" = "X" ]; then
 		#echo "max hostconcurrence reached for all hosts, pausing ${loopdelay}s to try again"
 		sleep $loopdelay
