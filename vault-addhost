@@ -95,7 +95,7 @@ case "$resp" in
 		ssh root@$2 'cat > ~_backup/.ssh/authorized_keys'
 
 	echo "\nSSH Session 3, test key installation, dump /tmp as a test"
-	su -m _backup -c "ssh -v -o batchmode=yes -i $bkd/${2}_sshkey $2 /sbin/dump -0a -f - /tmp" > /dev/null
+	su -m _backup -c "ssh -v -i $bkd/${2}_sshkey $2 /sbin/dump -0a -f - /tmp" > /dev/null
 	;;
 [Nn]*)
 	echo
