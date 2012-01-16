@@ -18,8 +18,8 @@ echo "Checking to be sure backups are stopped"
 
 kills=0
 while :; do
-	set -A pids $(pgrep -u _backup)
-	if [ ${#pids[*]} -eq 2 ]; then
+	set -A pids $(pgrep -u _backup ssh vault-backup)
+	if [ ${#pids[*]} -eq 0 ]; then
 		break
 	fi
 	if [ "$(pgrep -u _backup ssh)" ]; then
