@@ -696,7 +696,25 @@ pwgen=/usr/local/bin/pwgen
 why=""
 
 if [ rsynconly -eq 0 ]; then
-set -A dumps $(sed 's/#.*$//;/^$/d' $bkd/$dumplistname)
+
+# load the dumplist as a unique list of dumps
+set -A dumps 
+for dump in $(sed 's/#.*$//;/^$/d' $bkd/$dumplistname)
+do
+	c=0
+	duplicate=0
+	while [ c -lt ${#dumps[*]} ]
+	do
+		if [ "${dumps[$c]}" = "$dump" ]; then
+			duplicate=1
+			break
+		fi
+		let c=c+1
+	done
+	if [ duplicate -eq 0 ]; then
+		dumps[${#dumps[*]}]=$dump
+	fi
+done
 #
 # init globaljobs[] .. for a maximum of globalconcurrence or ${#dumps[*]}
 c=0
