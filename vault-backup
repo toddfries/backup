@@ -393,7 +393,7 @@ reportls() {
 }
 
 sshcmdline() {
-	local scmd="ssh $sshxtra" user="$1" host="$2" addr="$3"
+	local scmd="time ssh $sshxtra" user="$1" host="$2" addr="$3"
 	if [ "$thisaprog" != "none" ]; then
 		scmd="$scmd -C"
 	fi
