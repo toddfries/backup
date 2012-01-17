@@ -535,6 +535,14 @@ netcheckhost() {
 	done
 	echo "$host"
 }
+tailifexists() {
+	local arg="$1" file="$2"
+	if [ -f "$file" ]; then
+		tail $arg "$file"
+	else
+		echo -n ""
+	fi
+}
 
 smbclient=/usr/local/bin/smbclient
 smbpasswd=/usr/local/bin/smbpasswd
@@ -554,13 +562,13 @@ do
 	globaljobs[$c]=""
 	create "$logfile".$c
 	if ! [ verbose -eq 0 ]; then
-		( tail -f "$logfile".$c | while read line; do echo "$c: $line"; done ) >> $tty &
+		( tailifexists -f "$logfile".$c | while read line; do echo "$c: $line"; done ) >> $tty &
 		tailpid="$tailpid $!"
 	fi
 	let c=c+1
 done
 if ! [ verbose -eq 0 ]; then
-	tail -f "$logfile" >> $tty & tailpid="$tailpid $!"
+	tailifexists -f "$logfile" >> $tty & tailpid="$tailpid $!"
 fi
 
 # for N concurrent backups, should not do two or more concurrent to the same host if
@@ -586,11 +594,9 @@ while [ dumpcount -lt ${#dumps[*]} ]
 do
 	logfile="$globallogfile"
 	# wait for available slot
-	#set -x
 	while :
 	do
 		c=0
-		#set -x
 		while [ c -lt globalconcurrence ]
 		do
 			#echo $(date) Checking global concurrence..c=$c
@@ -606,13 +612,10 @@ do
 			#echo $(date;echo -n " ";jobs ${globaljobs[$c]})
 			let c=c+1
 		done
-		set +x
 		sleep $loopdelay
 	done
 	echo $(date) Slot $c open dumpcount=$dumpcount dumps=${#dumps[*]} > $tty
-	set +x
 
-	#set -x
 	# now that we have an available slot, search for a dump that matches hostconcurrence settings
 	dumpjob=""
 	testjob=0
@@ -671,7 +674,6 @@ do
 			log "Skipping '$f' (locked)"
 			let stop=globalstart+SECONDS
 			savedetails -0 -0 "$f" $((stop-start)) $thisl "host locked"
-			rm -f ${tmpfile}*
 			skip=1
 		else
 			hosts="$hosts ${hostof[$dumpjob]}"
@@ -680,14 +682,12 @@ do
 	#	log "Skipping lock check for host $host, already locked for this run"
 	fi
 
-	#set -x
 	let dumpcount=dumpcount+1
 	globalhostof[$c]=${hostof[$dumpjob]}
 	hostinc "${globalhostof[$c]}"
 	started[$dumpjob]=1
 
 	f=${dumps[$dumpjob]}
-	set +x
 	logfile="$logfile.$c"
 	
 	thisaprog=$aprog
@@ -726,7 +726,7 @@ do
 				echo "&& rm -rf \$d"
 			  } | $scmd sh && echo "$successcookie" >> $tmpsmb || \
 			  echo "returned $?" >> $tmpsmb
-			  if tail -3 $tmpsmb | egrep "NT_STATUS_(PASSWORD_EXPIRED|LOGIN_FAILURE)" > /dev/null 2>&1; then
+			  if tailifexists -3 $tmpsmb | egrep "NT_STATUS_(PASSWORD_EXPIRED|LOGIN_FAILURE)" > /dev/null 2>&1; then
 				if [ -x $pwgen ]; then
 					cat $tmpsmb > /dev/stderr
 					oldpass=$(awk '/^password/{print $3}' $auth | tail -1)
@@ -778,7 +778,7 @@ do
 				$smbclient -d2 -E -A$auth "//$host/$smbshare" -D "$smbsubdir" \
 					-c 'tarmode full' -Tc  - && echo "$successcookie" > $tmpsmb || echo "returned $?" > $tmpsmb
 			  fi
-			  if tail -3 $tmpsmb | egrep "NT_STATUS_(PASSWORD_EXPIRED|LOGIN_FAILURE)" > /dev/null 2>&1; then
+			  if tailifexists -3 $tmpsmb | egrep "NT_STATUS_(PASSWORD_EXPIRED|LOGIN_FAILURE)" > /dev/null 2>&1; then
 				if [ -x $pwgen ]; then
 					cat $tmpsmb > /dev/stderr
 					oldpass=$(awk '/^password/{print $3}' $auth | tail -1)
@@ -1251,15 +1251,15 @@ do
 		stderrpid=0
 		create "$tmpfile" "$tmpfile.stderr"
 		if [ verbose -gt 1 ]; then
-			tail -f "$tmpfile.stderr" >> $tty & stderrpid=$!
+			tailifexists -f "$tmpfile.stderr" >> $tty & stderrpid=$!
 		fi
 		if [ "$thisaprog" = "none" ]; then
 			backupmethod
 		else
 			backupmethod | $thisaprog -$aopt
 		fi > "$tmpfile" 2> "$tmpfile.stderr"
-		if [ "$(tail -1 "$tmpfile.stderr" | egrep "$successcookie$" 2> /dev/null)" ] && \
-			! [ "$(tail "$tmpfile.stderr" | egrep -i "Connection reset by peer|Connection timed out| denied|failed|Command not found|Killed |^ssh:.*:Operation timed out" 2> /dev/null)" ]; then
+		if [ "$(tailifexists -1 "$tmpfile.stderr" | egrep "$successcookie$" 2> /dev/null)" ] && \
+			! [ "$(tailifexists -10 "$tmpfile.stderr" | egrep -i "Connection reset by peer|Connection timed out| denied|failed|Command not found|Killed |^ssh:.*:Operation timed out" 2> /dev/null)" ]; then
 			rotate "$outfile"
 			mv "$tmpfile" "$outfile" && \
 			mv "$tmpfile.timestamp" "$outfile.timestamp" && \
@@ -1272,24 +1272,26 @@ do
 			fi > "$outfile.filelist"
 		else
 			fail=101
-			if [ "$(tail -2 "$tmpfile.stderr" | grep "session setup failed: NT_STATUS_PASSWORD_EXPIRED")" ]; then
+			if [ "$(tailifexists -2 "$tmpfile.stderr" | grep "session setup failed: NT_STATUS_PASSWORD_EXPIRED")" ]; then
 				fail=103
 				let retrycount=maxretry+1
 				log "password expired, please reset"
 				# XXX implement password reset procedure
 			fi
-			if [ "$(tail -2 "$tmpfile.stderr" | grep "no pg_hba.conf entry for host")" ]; then
+			if [ "$(tailifexists -2 "$tmpfile.stderr" | grep "no pg_hba.conf entry for host")" ]; then
 				fail=104
 			fi
-			if [ "$( tail "$tmpfile.stderr" | egrep "^Terminated$" )" ]; then
+			if [ "$( tailifexists -10 "$tmpfile.stderr" | egrep "^Terminated$" )" ]; then
 				fail=106
-				log "Terminated"
+			fi
+			if [ "$( tailifexists -10 "$tmpfile.stderr" | egrep "^Permission denied " )" ]; then
+				fail=107
 			fi
 			let retrycount=retrycount+1
 			[ retrycount -le maxretry ] && log "'$f' failed, retrying... $retrycount of $maxretry"
 			continue
 		fi
-		if [ "$( tail "$outfile.stderr" | grep "no address associated" )" ]
+		if [ "$( tailifexists -10 "$outfile.stderr" | grep "no address associated" )" ]
 		then
 			fail=102
 			log "DNS failure for '$f', Retrying..."
@@ -1305,7 +1307,7 @@ do
 	let stop=globalstart+SECONDS
 
 	if [ -f "$outfile.stderr" -a fail -eq 0 ]; then
-		tail -4 "$outfile.stderr" | head -3 | bubble >> $logfile
+		tailifexists -4 "$outfile.stderr" | head -3 | bubble >> $logfile
 	else
 		if ! [ -f "${tmpfile}.stderr" ]; then
 		    {
@@ -1359,14 +1361,13 @@ do
 		104) why="PostgreSQL access denied";;
 		105) why="outside backup window";;
 		106) why="Terminated/killed";;
+		107) why="Permission denied";;
 		*) why="fail=$fail";;
 		esac
 		savedetails -0 -0 "$f" $((stop-start)) $thisl "$why"
 	fi
 	) & pid=$!
-	#set -x
 	globaljobs[$c]=$pid
-	set +x
 	fi # skip=0
 done 
 logfile="$globallogfile"
