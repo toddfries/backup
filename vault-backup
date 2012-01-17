@@ -543,6 +543,152 @@ tailifexists() {
 		echo -n ""
 	fi
 }
+backupjob() {
+	# XXX make start= be stat of timestamp
+	create "$tmpfile.timestamp"
+	case "$thisl" in
+	0)
+	;;
+	[1-9]*)
+		_log "$(date -r $nfiltime +"$datefmt")" \
+			"Start of last level $lastl"
+	;;
+	esac
+	_log "$(date -r $start +"$datefmt")" "Start of this level $thisl"
+	while [ retrycount -le maxretry ]; do
+		fail=0
+		if [ stderrpid -gt 0 ]; then
+			sleep 1
+			sync
+			kill $stderrpid
+		fi
+		hourtime=$(date +%k)
+		if [ $hourtime -lt $houraftertime -a $hourtime -gt $hourbeforetime ]; then
+			fail=105
+		fi
+		stderrpid=0
+		create "$tmpfile" "$tmpfile.stderr"
+		if [ verbose -gt 1 ]; then
+			tailifexists -f "$tmpfile.stderr" >> $tty & stderrpid=$!
+		fi
+		if [ "$thisaprog" = "none" ]; then
+			backupmethod
+		else
+			backupmethod | $thisaprog -$aopt
+		fi > "$tmpfile" 2> "$tmpfile.stderr"
+		if [ "$(tailifexists -1 "$tmpfile.stderr" | egrep "$successcookie$" 2> /dev/null)" ] && \
+			! [ "$(tailifexists -10 "$tmpfile.stderr" | egrep -i "Connection reset by peer|Connection timed out| denied|failed|Command not found|Killed |^ssh:.*:Operation timed out" 2> /dev/null)" ]; then
+			rotate "$outfile"
+			mv "$tmpfile" "$outfile" && \
+			mv "$tmpfile.timestamp" "$outfile.timestamp" && \
+			mv "$tmpfile.stderr" "$outfile.stderr" && \
+			create "$outfile.$filelist"
+			listmethod 2> /dev/null | if [ "$thisaprog" = "none" ]; then
+			    cat
+			else
+			    $thisaprog -$thisaopt
+			fi > "$outfile.filelist"
+		else
+			fail=101
+			if [ "$(tailifexists -2 "$tmpfile.stderr" | grep "session setup failed: NT_STATUS_PASSWORD_EXPIRED")" ]; then
+				fail=103
+				let retrycount=maxretry+1
+				log "password expired, please reset"
+				# XXX implement password reset procedure
+			fi
+			if [ "$(tailifexists -2 "$tmpfile.stderr" | grep "no pg_hba.conf entry for host")" ]; then
+				fail=104
+			fi
+			let retrycount=retrycount+1
+			[ retrycount -le maxretry ] && log "'$f' failed, retrying... $retrycount of $maxretry"
+			continue
+		fi
+		if [ "$( tailifexists -10 "$outfile.stderr" | grep "no address associated" )" ]
+		then
+			fail=102
+			log "DNS failure for '$f', Retrying..."
+			let retrycount=retrycount+1
+			continue
+		fi
+			if [ "$( tailifexists -10 "$outfile.stderr" | egrep "^Terminated$" )" ]; then
+				fail=106
+			fi
+			if [ "$( tailifexists -10 "$outfile.stderr" | egrep "^Permission denied " )" ]; then
+				fail=107
+			fi
+			if [ "$( tailifexists -10 "$outfile.stderr" | egrep "^cannot get raw name for mfs:" )" ]; then
+				fail=108
+			fi
+		break
+	done
+	if [ stderrpid -gt 0 ]; then
+		sleep 1
+		kill $stderrpid
+	fi
+	let stop=globalstart+SECONDS
+
+	if [ -f "$outfile.stderr" -a fail -eq 0 ]; then
+		tailifexists -4 "$outfile.stderr" | head -3 | bubble >> $logfile
+	else
+		if ! [ -f "${tmpfile}.stderr" ]; then
+		    {
+			echo "Some unknown error occurred, the output file does not exist!"
+			echo "Checked:"
+			echo "${tmpfile}.stderr"
+			echo "${outfile}.stderr"
+			ls -l ${outfile}.stderr ${tmpfile}.stderr 2>&1
+		    } | bubble >> $logfile
+		fi
+	fi
+
+	if [ -f "$outfile" -a fail -eq 0 ]; then
+		size=$(echo $(stat -f%z "$outfile")+0 | bc)
+		if [ "$thisaprog" = "none" ]; then
+			ucsize=$size
+		else
+			ucsize=$( echo $($thisaprog -d < "$outfile" | wc -c)+0 | bc)
+		fi
+		echo "$size $ucsize" >> $statfile.$c
+		summdate="$(date -r $stop +"$datefmt")"
+		_log "$summdate" "Stop  of this level $thisl"
+		savedetails $size $ucsize "$f" $((stop-start)) $thisl
+	else
+		if [ -f "$tmpfile.stderr" ]; then
+		    {
+			echo "   Fail set to $fail"
+			echo "   Looking for success cookie: $successcookie"
+			echo "   Attempted to write to:"
+			echo "$tmpfile"
+			echo "   Stderr:"
+			cat "$tmpfile.stderr"
+		    } | bubble >> $logfile
+		fi
+		log "Fail  of this level $thisl"
+		# If we have no other archive, keep this for later analysis
+		# yes, this will use more disk space on failures, but we want
+		# at least one backup even if it is partial
+		if [ -f "${outfile}" ]; then
+			rm -f "$tmpfile"*
+		else
+			mv "$tmpfile" "${outfile}-failed" && \
+			mv "$tmpfile.timestamp" "${outfile}-failed.timestamp" && \
+			mv "$tmpfile.stderr" "${outfile}-failed.stderr"
+		fi
+		local why
+		case "$fail" in
+		101) why="unknown";;
+		102) why="DNS failure";;
+		103) why="password expired";;
+		104) why="PostgreSQL access denied";;
+		105) why="outside backup window";;
+		106) why="Terminated/killed";;
+		107) why="Permission denied";;
+		108) why="Cannot backup mfs";;
+		*) why="fail=$fail";;
+		esac
+		savedetails -0 -0 "$f" $((stop-start)) $thisl "$why"
+	fi
+}
 
 smbclient=/usr/local/bin/smbclient
 smbpasswd=/usr/local/bin/smbpasswd
@@ -632,8 +778,11 @@ do
 		dumpjob=$testjob
 		break
 	done
-	# sometimes dumpcount increments are skipped it appears, so until
-	# that is fixed, find the end of the loop via 'other means'
+
+	# if duplicate entries in dumplist occur, dumpcount will never reach
+	# ${#dumps[*]} since we skip entries that have already been done
+	# therefore test for loop completion by exiting when both nothing is
+	# running and nothing left to run
 	if [ testjob -eq ${#dumps[*]} -a "X$dumpjob" = "X" ]; then
 		somethingsrunning=0
 		i=0
@@ -1226,150 +1375,7 @@ do
 
 	# Until the closing ), the below cannot presume global vars escape
 	(
-	# XXX make start= be stat of timestamp
-	create "$tmpfile.timestamp"
-	case "$thisl" in
-	0)
-	;;
-	[1-9]*)
-		_log "$(date -r $nfiltime +"$datefmt")" \
-			"Start of last level $lastl"
-	;;
-	esac
-	_log "$(date -r $start +"$datefmt")" "Start of this level $thisl"
-	while [ retrycount -le maxretry ]; do
-		fail=0
-		if [ stderrpid -gt 0 ]; then
-			sleep 1
-			sync
-			kill $stderrpid
-		fi
-		hourtime=$(date +%k)
-		if [ $hourtime -lt $houraftertime -a $hourtime -gt $hourbeforetime ]; then
-			fail=105
-		fi
-		stderrpid=0
-		create "$tmpfile" "$tmpfile.stderr"
-		if [ verbose -gt 1 ]; then
-			tailifexists -f "$tmpfile.stderr" >> $tty & stderrpid=$!
-		fi
-		if [ "$thisaprog" = "none" ]; then
-			backupmethod
-		else
-			backupmethod | $thisaprog -$aopt
-		fi > "$tmpfile" 2> "$tmpfile.stderr"
-		if [ "$(tailifexists -1 "$tmpfile.stderr" | egrep "$successcookie$" 2> /dev/null)" ] && \
-			! [ "$(tailifexists -10 "$tmpfile.stderr" | egrep -i "Connection reset by peer|Connection timed out| denied|failed|Command not found|Killed |^ssh:.*:Operation timed out" 2> /dev/null)" ]; then
-			rotate "$outfile"
-			mv "$tmpfile" "$outfile" && \
-			mv "$tmpfile.timestamp" "$outfile.timestamp" && \
-			mv "$tmpfile.stderr" "$outfile.stderr" && \
-			create "$outfile.$filelist"
-			listmethod 2> /dev/null | if [ "$thisaprog" = "none" ]; then
-			    cat
-			else
-			    $thisaprog -$thisaopt
-			fi > "$outfile.filelist"
-		else
-			fail=101
-			if [ "$(tailifexists -2 "$tmpfile.stderr" | grep "session setup failed: NT_STATUS_PASSWORD_EXPIRED")" ]; then
-				fail=103
-				let retrycount=maxretry+1
-				log "password expired, please reset"
-				# XXX implement password reset procedure
-			fi
-			if [ "$(tailifexists -2 "$tmpfile.stderr" | grep "no pg_hba.conf entry for host")" ]; then
-				fail=104
-			fi
-			let retrycount=retrycount+1
-			[ retrycount -le maxretry ] && log "'$f' failed, retrying... $retrycount of $maxretry"
-			continue
-		fi
-		if [ "$( tailifexists -10 "$outfile.stderr" | grep "no address associated" )" ]
-		then
-			fail=102
-			log "DNS failure for '$f', Retrying..."
-			let retrycount=retrycount+1
-			continue
-		fi
-			if [ "$( tailifexists -10 "$outfile.stderr" | egrep "^Terminated$" )" ]; then
-				fail=106
-			fi
-			if [ "$( tailifexists -10 "$outfile.stderr" | egrep "^Permission denied " )" ]; then
-				fail=107
-			fi
-			if [ "$( tailifexists -10 "$outfile.stderr" | egrep "^cannot get raw name for mfs:" )" ]; then
-				fail=108
-			fi
-		break
-	done
-	if [ stderrpid -gt 0 ]; then
-		sleep 1
-		kill $stderrpid
-	fi
-	let stop=globalstart+SECONDS
-
-	if [ -f "$outfile.stderr" -a fail -eq 0 ]; then
-		tailifexists -4 "$outfile.stderr" | head -3 | bubble >> $logfile
-	else
-		if ! [ -f "${tmpfile}.stderr" ]; then
-		    {
-			echo "Some unknown error occurred, the output file does not exist!"
-			echo "Checked:"
-			echo "${tmpfile}.stderr"
-			echo "${outfile}.stderr"
-			ls -l ${outfile}.stderr ${tmpfile}.stderr 2>&1
-		    } | bubble >> $logfile
-		fi
-	fi
-
-	if [ -f "$outfile" -a fail -eq 0 ]; then
-		size=$(echo $(stat -f%z "$outfile")+0 | bc)
-		if [ "$thisaprog" = "none" ]; then
-			ucsize=$size
-		else
-			ucsize=$( echo $($thisaprog -d < "$outfile" | wc -c)+0 | bc)
-		fi
-		echo "$size $ucsize" >> $statfile.$c
-		summdate="$(date -r $stop +"$datefmt")"
-		_log "$summdate" "Stop  of this level $thisl"
-		savedetails $size $ucsize "$f" $((stop-start)) $thisl
-	else
-		if [ -f "$tmpfile.stderr" ]; then
-		    {
-			echo "   Fail set to $fail"
-			echo "   Looking for success cookie: $successcookie"
-			echo "   Attempted to write to:"
-			echo "$tmpfile"
-			echo "   Stderr:"
-			cat "$tmpfile.stderr"
-		    } | bubble >> $logfile
-		fi
-		log "Fail  of this level $thisl"
-		# If we have no other archive, keep this for later analysis
-		# yes, this will use more disk space on failures, but we want
-		# at least one backup even if it is partial
-		if [ -f "${outfile}" ]; then
-			rm -f "$tmpfile"*
-		else
-			mv "$tmpfile" "${outfile}-failed" && \
-			mv "$tmpfile.timestamp" "${outfile}-failed.timestamp" && \
-			mv "$tmpfile.stderr" "${outfile}-failed.stderr"
-		fi
-		local why
-		case "$fail" in
-		101) why="unknown";;
-		102) why="DNS failure";;
-		103) why="password expired";;
-		104) why="PostgreSQL access denied";;
-		105) why="outside backup window";;
-		106) why="Terminated/killed";;
-		107) why="Permission denied";;
-		108) why="Cannot backup mfs";;
-		*) why="fail=$fail";;
-		esac
-		savedetails -0 -0 "$f" $((stop-start)) $thisl "$why"
-	fi
+		backupjob
 	) & pid=$!
 	globaljobs[$c]=$pid
 	fi # skip=0
