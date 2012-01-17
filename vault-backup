@@ -1106,11 +1106,12 @@ do
 				timecmd="$(date -r $nfiltime +"%a %b %e %H:%M:%S %Y")"
 			fi
 			args="-0a -f - $file"
-			if [ "$rmtaprog" != "none" ]; then
-				args="$args | $rmtaprog -$rmtaopt"
-			fi
 			echo "$cmd $time $timecmd $args" > /dev/stderr
-			$cmd $time "$timecmd" $args && echo "$successcookie" > /dev/stderr || echo "returned $?" > /dev/stderr
+			if [ "$rmtaprog" != "none" ]; then
+				$cmd $time "$timecmd" $args | $rmtaprog -$rmtaopt
+			else
+				$cmd $time "$timecmd" $args
+			fi && echo "$successcookie" > /dev/stderr || echo "returned $?" > /dev/stderr
 		}
 		listmethod() {
 			$decomp -d < "$outfile" | restore -tyvf - | \
