@@ -128,6 +128,8 @@ fi
 if [ -f "$bkd/conf" ]; then
 	. $bkd/conf
 fi
+# would prefer this to be higher, but should not be over-ride'able
+globalstart=$(date +%s)
 
 if [ -d "$datadir" ]; then
 	cd $datadir
@@ -146,7 +148,17 @@ sshxtra="$sshxtra -o BatchMode=yes -o ServerAliveInterval=3600 -o ServerAliveCou
 trylockdir=$datadir/.LOCK.$setname-$dumplistname.try
 hardlockdir=$datadir/.LOCK.$setname-$dumplistname.hard
 hosts=""
-trap 'for h in $hosts; do unlock $trylockdir-$host;done; for f in tmpfiles; do rm -f $f; done; exit 1' 0 1 15
+trap 'cleanup; exit 1' 0 1 15
+cleanup() {
+	for h in $hosts
+	do
+		unlock $trylockdir-$host
+	done
+	for f in tmpfiles
+	do
+		rm -f $f
+	done
+}
 hardlock() {
 	local lockdir=$1
 	while ! mkdir $lockdir > /dev/null 2>&1
@@ -327,7 +339,6 @@ log() {
 	_log "$(date +"$datefmt")" "$xtra$@"
 }
 
-globalstart=$(date +%s)
 _log "$(date -r $globalstart +"$datefmt")" "pid $$: backup of $bkd/$dumplistname list starting"
 log "globalstart=$globalstart"
 log "logfile=$logfile"
@@ -599,6 +610,7 @@ do
 	done
 	echo $(date) Slot $c open dumpcount=$dumpcount dumps=${#dumps[*]} > /dev/tty
 
+	#set -x
 	# now that we have an available slot, search for a dump that matches hostconcurrence settings
 	dumpjob=""
 	testjob=0
@@ -615,6 +627,29 @@ do
 		dumpjob=$testjob
 		break
 	done
+	# sometimes dumpcount increments are skipped it appears, so until
+	# that is fixed, find the end of the loop via 'other means'
+	if [ testjob -eq ${#dumps[*]} -a "X$dumpjob" = "X" ]; then
+		somethingsrunning=0
+		c=0
+		while [ c -lt globalconcurrence ]
+		do
+			if [ "X${globaljobs[$c]}" = "X" ]; then
+				let c=c+1
+				continue
+			fi
+			if [ "$(jobs ${globaljobs[$c]} 2> /dev/null)" ]; then
+				somethingsrunning=1
+				break
+			fi
+			let c=c+1
+		done
+		if [ somethingsrunning -eq 0 ]; then
+			# nothing is running and we have nothing more to process, so
+			# bail this loop!
+			break
+		fi
+	fi
 	echo "$(date) Slot $c testjob=$testjob"
 	if [ "X$dumpjob" = "X" ]; then
 		#echo "max hostconcurrence reached for all hosts, pausing ${loopdelay}s to try again"
@@ -622,17 +657,17 @@ do
 		continue
 	fi
 
-	echo "$(date) Slot $c assigned to ${hostof[$dumpjob]} ${dumps[$dumpjob]}" > /dev/tty
+	echo "$(date) Slot $c starting ${dumps[$dumpjob]}" > /dev/tty
 
 	thisl=$l
-	start=$(date +%s)
+	let start=globalstart+SECONDS
 
 	# only lock each host once per backup run
 	skip=0
 	if ! isin "${hostof[$dumpjob]}" $hosts; then
 		if ! trylock ${hostof[$dumpjob]}; then
 			log "Skipping '$f' (locked)"
-			stop=$(date +%s)
+			let stop=globalstart+SECONDS
 			savedetails -0 -0 "$f" $((stop-start)) $thisl "host locked"
 			rm -f ${tmpfile}*
 			skip=1
@@ -1244,6 +1279,10 @@ do
 			if [ "$(tail -2 "$tmpfile.stderr" | grep "no pg_hba.conf entry for host")" ]; then
 				fail=104
 			fi
+			if [ "$( tail "$tmpfile.stderr" | egrep "^Terminated$" )" ]; then
+				fail=106
+				log "Terminated"
+			fi
 			let retrycount=retrycount+1
 			[ retrycount -le maxretry ] && log "'$f' failed, retrying... $retrycount of $maxretry"
 			continue
@@ -1255,17 +1294,13 @@ do
 			let retrycount=retrycount+1
 			continue
 		fi
-		if [ "$( tail "$outfile.stderr" | egrep "^Terminated$" )" ]; then
-			fail=106
-			log "Terminated"
-		fi
 		break
 	done
 	if [ stderrpid -gt 0 ]; then
 		sleep 1
 		kill $stderrpid
 	fi
-	stop=$(date +%s)
+	let stop=globalstart+SECONDS
 
 	if [ -f "$outfile.stderr" -a fail -eq 0 ]; then
 		tail -4 "$outfile.stderr" | head -3 | bubble >> $logfile
@@ -1390,12 +1425,12 @@ if [ "$remotemirror" ]; then
 		fi
 			
 		if [ "$location" ]; then
-			mirrorstart=$(date +%s)
+			let mirrorstart=globalstart+SECONDS
 			log "Mirroring backups to $location"
 			/usr/local/bin/rsync -rtqz --partial --inplace $bwlimit $rsyncargs \
 				--exclude=".*" $datadir/. $location
 			rm -f $tmpfile
-			mirrorstop=$(date +%s)
+			let mirrorstop=globalstart+SECONDS
 			log "Mirror time $((mirrorstop-mirrorstart))s"
 			savedetails -0 -0 "mirror" $((mirrorstop-mirrorstart)) -
 		else
@@ -1403,7 +1438,7 @@ if [ "$remotemirror" ]; then
 		fi
 	fi
 fi
-globalend=$(date +%s)
+let globalend=globalstart+SECONDS
 globaltime=$((globalend-globalstart))
 totsize="0"
 totucsize="0"
