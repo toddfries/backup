@@ -26,10 +26,10 @@ while :; do
 	# only kill ssh sessions so vault-backup can finish gracefully
 	if [ "$(pgrep -u _backup ssh)" ]; then
 		pkill -u _backup ssh
-		sleep .3
+		sleep .2
 		let kills=kills+1
 	else
-		sleep 5
+		sleep .5
 	fi
 done
 echo executed $kills times
