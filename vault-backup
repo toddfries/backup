@@ -1281,12 +1281,6 @@ do
 			if [ "$(tailifexists -2 "$tmpfile.stderr" | grep "no pg_hba.conf entry for host")" ]; then
 				fail=104
 			fi
-			if [ "$( tailifexists -10 "$tmpfile.stderr" | egrep "^Terminated$" )" ]; then
-				fail=106
-			fi
-			if [ "$( tailifexists -10 "$tmpfile.stderr" | egrep "^Permission denied " )" ]; then
-				fail=107
-			fi
 			let retrycount=retrycount+1
 			[ retrycount -le maxretry ] && log "'$f' failed, retrying... $retrycount of $maxretry"
 			continue
@@ -1298,6 +1292,15 @@ do
 			let retrycount=retrycount+1
 			continue
 		fi
+			if [ "$( tailifexists -10 "$outfile.stderr" | egrep "^Terminated$" )" ]; then
+				fail=106
+			fi
+			if [ "$( tailifexists -10 "$outfile.stderr" | egrep "^Permission denied " )" ]; then
+				fail=107
+			fi
+			if [ "$( tailifexists -10 "$outfile.stderr" | egrep "^cannot get raw name for mfs:" )" ]; then
+				fail=108
+			fi
 		break
 	done
 	if [ stderrpid -gt 0 ]; then
@@ -1362,6 +1365,7 @@ do
 		105) why="outside backup window";;
 		106) why="Terminated/killed";;
 		107) why="Permission denied";;
+		108) why="Cannot backup mfs";;
 		*) why="fail=$fail";;
 		esac
 		savedetails -0 -0 "$f" $((stop-start)) $thisl "$why"
