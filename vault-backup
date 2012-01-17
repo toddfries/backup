@@ -450,60 +450,60 @@ set -A hostrunname
 set -A hostruncount
 hostinc() {
 	#echo "hostinc: $@" > $tty
-	local host=$1 c=0 found=0 i=${#hostrunname[*]}
-	while [ c -lt i ]
+	local host=$1 k=0 found=0 i=${#hostrunname[*]}
+	while [ k -lt i ]
 	do
-		if [[ $host == ${hostrunname[$c]} ]]; then
+		if [[ $host == ${hostrunname[$k]} ]]; then
 			found=1
 			break
 		fi
-		let c=c+1
+		let k=k+1
 	done
 	if [ found -eq 0 ]; then
-		hostrunname[$i]=$host
-		hostruncount[$i]=1
+		hostrunname[$k]=$host
+		hostruncount[$k]=1
 	else
-		let hostruncount[$c]=hostruncount[$c]+1
+		let hostruncount[$k]=hostruncount[$k]+1
 	fi
-	#echo hostinc: $host ${hostruncount[$c]} > $tty
+	#echo hostinc: $host ${hostruncount[$k]} > $tty
 }
 hostdec() {
 	#echo "hostdec: $@" > $tty
-	local host=$1 c=0 found=0 i=${#hostrunname[*]}
-	while [ c -lt i ]
+	local host=$1 k=0 found=0 i=${#hostrunname[*]}
+	while [ k -lt i ]
 	do
-		if [[ $host == ${hostrunname[$c]} ]]; then
+		if [[ $host == ${hostrunname[$k]} ]]; then
 			found=1
 			break
 		fi
-		let c=c+1
+		let k=k+1
 	done
 	if [ found -eq 0 ]; then
 		log "WARNING: hostdec is called on a non existent host: $host"
-		hostrunname[$i]=$host
-		hostruncount[$i]=0
+		hostrunname[$k]=$host
+		hostruncount[$k]=0
 	else
-		let hostruncount[$c]=hostruncount[$c]-1
+		let hostruncount[$k]=hostruncount[$k]-1
 	fi
-	#echo hostdec: $host ${hostruncount[$c]} > $tty
+	#echo hostdec: $host ${hostruncount[$k]} > $tty
 }
 hostconcount() {
 	#echo "hostconcount: $@" > $tty
-	local host=$1 c=0 found=0 i=${#hostrunname[*]}
-	while [ c -lt i ]
+	local host=$1 k=0 found=0 i=${#hostrunname[*]}
+	while [ k -lt i ]
 	do
-		if [[ $host == ${hostrunname[$c]} ]]; then
+		if [[ $host == ${hostrunname[$k]} ]]; then
 			found=1
 			break
 		fi
-		let c=c+1
+		let k=k+1
 	done
 	if [ found -eq 0 ]; then
 		echo 0
 	else
-		echo ${hostruncount[$c]}
+		echo ${hostruncount[$k]}
 	fi
-	#echo hostconcount: $host ${hostruncount[$c]} > $tty
+	#echo hostconcount: $host ${hostruncount[$k]} > $tty
 }
 pingwait=2
 pingcount=2
