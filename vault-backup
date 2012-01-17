@@ -889,6 +889,9 @@ do
 			  : > $tmpsmb
 
 			  cmd="$smbclient -d2 -E -A%s \"//$smbhost/$smbshare\" -D / -c 'tarmode full' -Tc%s %s -"
+			  if [ "$rmtaopt" != "none" ]; then
+				cmd="$cmd | $rmtaprog -$rmtaopt"
+			  fi
 			  echo "$cmd" $auth $nopt "$nfil" >> $tmpsmb
 			  {
 				echo "d=\$(mktemp -d /tmp/.smbbackup.XXXXXXXXXX)"
@@ -957,7 +960,11 @@ do
 			  else
 				$smbclient -d2 -E -A$auth "//$host/$smbshare" -D "$smbsubdir" \
 					-c 'tarmode full' -Tc  - && echo "$successcookie" > $tmpsmb || echo "returned $?" > $tmpsmb
-			  fi
+			  fi | if [ "$rmtaprog" != "none" ]; then
+				$rmtaprog -$rmtaopt
+			else
+				cat
+			fi
 			  if tailifexists -3 $tmpsmb | egrep "NT_STATUS_(PASSWORD_EXPIRED|LOGIN_FAILURE)" > /dev/null 2>&1; then
 				if [ -x $pwgen ]; then
 					cat $tmpsmb > /dev/stderr
@@ -995,8 +1002,11 @@ do
 			if [ "$nfil" ]; then
 				cmd="$cmd -T $(date -r $nfiltime +"%Y%m%d%H%M.%S") "
 			fi
-			cmd="$cmd ."
-			echo "$cmd $file" > /dev/stderr
+			args=". $file"
+			if [ "$rmtaprog" != "none" ]; then
+				args="$args | $rmtaprog -$rmtaopt"
+			fi
+			echo "$cmd $args" > /dev/stderr
 			if [ -d $file ]; then
 				( cd $file; $cmd && echo "$successcookie" > /dev/stderr || echo "returned $?" > /dev/stderr  )
 			else
@@ -1028,7 +1038,11 @@ do
 		backupmethod() {
 			scmd=$(sshcmdline $authuser $host $sshhost)
 			# would like -O but FreeBSD doesn't have it, bah
-			cmd="cd "\$dir" && find \"\$path\" -xdev %s -print | pax -wdv || exit 1"
+			cmd="cd "\$dir" && find \"\$path\" -xdev %s -print | pax -wdv "
+			if [ "$rmtaprog" != "none" ]; then
+				cmd="$cmd | $rmtaprog -$rmtaopt"
+			fi
+			cmd="$cmd || exit 1"
 			printf "authuser=$authuser nopt=$nopt nfil=$nfil\n" > /dev/stderr
 			printf "Command: " > /dev/stderr
 			{
@@ -1088,6 +1102,9 @@ do
 				timecmd="$(date -r $nfiltime +"%a %b %e %H:%M:%S %Y")"
 			fi
 			args="-0a -f - $file"
+			if [ "$rmtaprog" != "none" ]; then
+				args="$args | $rmtaprog -$rmtaopt"
+			fi
 			echo "$cmd $time $timecmd $args" > /dev/stderr
 			$cmd $time "$timecmd" $args && echo "$successcookie" > /dev/stderr || echo "returned $?" > /dev/stderr
 		}
@@ -1108,6 +1125,9 @@ do
 		backupmethod() {
 			cmd=$(sshcmdline $authuser $host $sshhost)
 			cmd="$cmd /usr/sbin/backup -${thisl}uf - $file "
+			if [ "$rmtaprog" != "none" ]; then
+				cmd="$cmd | $rmtaprog -$rmtaopt"
+			fi
 			echo "$cmd" > /dev/stderr
 			$cmd && echo "$successcookie" > /dev/stderr || echo "returned $?" > /dev/stderr
 		}
@@ -1133,6 +1153,9 @@ do
 			  : > $tmpbn
 
 			  cmd="[ -d \"$file\" ] && cd $file && find . -xdev %s -print | tee \$d/list | /usr/sbin/backup -ivf -"
+			  if [ "$rmtaprog" != "none" ]; then
+				cmd="$cmd | $rmtaprog -$rmtaopt"
+			  fi
 			  printf "auth=$auth nopt=$nopt nfil=$nfil\nCommand: " >> $tmpbn
 			  {
 				echo "d=/tmp/.bnbackup.$$.$RANDOM$RANDOM$RANDOM;mkdir \$d"
@@ -1290,6 +1313,9 @@ do
 				cmd="$cmd -time \"$(date -r $nfiltime +"%m/%d/%Y %H:%M")\" "
 			fi
 			cmd="$cmd -localauth"
+			if [ "$rmtaprog" != "none" ]; then
+				cmd="$cmd | $rmtaprog -$rmtaopt"
+			fi
 			echo "$cmd" > /dev/stderr
 			$cmd && echo "$successcookie" > /dev/stderr || echo "returned $?" > /dev/stderr
 		}
