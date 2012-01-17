@@ -581,11 +581,12 @@ done
 
 dumpcount=0
 globallogfile="$logfile"
-loopdelay=2 # what is a good number?
+loopdelay=0.5 # what is a good number?
 while [ dumpcount -lt ${#dumps[*]} ]
 do
 	logfile="$globallogfile"
 	# wait for available slot
+	#set -x
 	while :
 	do
 		c=0
@@ -609,6 +610,7 @@ do
 		sleep $loopdelay
 	done
 	echo $(date) Slot $c open dumpcount=$dumpcount dumps=${#dumps[*]} > $tty
+	set +x
 
 	#set -x
 	# now that we have an available slot, search for a dump that matches hostconcurrence settings
@@ -631,18 +633,18 @@ do
 	# that is fixed, find the end of the loop via 'other means'
 	if [ testjob -eq ${#dumps[*]} -a "X$dumpjob" = "X" ]; then
 		somethingsrunning=0
-		c=0
-		while [ c -lt globalconcurrence ]
+		i=0
+		while [ i -lt globalconcurrence ]
 		do
-			if [ "X${globaljobs[$c]}" = "X" ]; then
-				let c=c+1
+			if [ "X${globaljobs[$i]}" = "X" ]; then
+				let i=i+1
 				continue
 			fi
-			if [ "$(jobs ${globaljobs[$c]} 2> /dev/null)" ]; then
+			if [ "$(jobs ${globaljobs[$i]} 2> /dev/null)" ]; then
 				somethingsrunning=1
 				break
 			fi
-			let c=c+1
+			let i=i+1
 		done
 		if [ somethingsrunning -eq 0 ]; then
 			# nothing is running and we have nothing more to process, so
