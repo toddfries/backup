@@ -554,6 +554,8 @@ backupjob() {
 		compopt="$rmtaopt"
 	else
 		decomp="$thisaprog"
+		compprog="$thisaprog"
+		compopt="$thisaopt"
 	fi
 	# XXX make start= be stat of timestamp
 	create "$tmpfile.timestamp"
@@ -569,7 +571,7 @@ backupjob() {
 	while [ retrycount -le maxretry ]; do
 		fail=0
 		if [ stderrpid -gt 0 ]; then
-			sleep 1
+			sleep 1.$((RANDOM%10))
 			sync
 			kill $stderrpid
 		fi
@@ -594,11 +596,13 @@ backupjob() {
 			mv "$tmpfile.timestamp" "$outfile.timestamp" && \
 			mv "$tmpfile.stderr" "$outfile.stderr" && \
 			create "$outfile.$filelist"
+			#set -x
 			listmethod 2> /dev/null | if [ "$compprog" = "none" ]; then
 			    cat
 			else
 			    $compprog -$compopt
 			fi > "$outfile.filelist"
+			#set +x
 		else
 			fail=101
 			if [ "$(tailifexists -2 "$tmpfile.stderr" | grep "session setup failed: NT_STATUS_PASSWORD_EXPIRED")" ]; then
@@ -654,7 +658,7 @@ backupjob() {
 
 	if [ -f "$outfile" -a fail -eq 0 ]; then
 		size=$(echo $(stat -f%z "$outfile")+0 | bc)
-		if [ "$thisaprog" = "none" ]; then
+		if [ "$thisaprog" = "none" -a "$rmtaprog" = "none" ]; then
 			ucsize=$size
 		else
 			ucsize=$( echo $($decomp -d < "$outfile" | wc -c)+0 | bc)
@@ -791,7 +795,7 @@ do
 		done
 		sleep $loopdelay
 	done
-	echo $(date) Slot $c open dumpcount=$dumpcount dumps=${#dumps[*]} > $tty
+	#echo $(date) Slot $c open dumpcount=$dumpcount dumps=${#dumps[*]} > $tty
 
 	# now that we have an available slot, search for a dump that matches hostconcurrence settings
 	dumpjob=""
@@ -835,7 +839,7 @@ do
 			break
 		fi
 	fi
-	echo "$(date) Slot $c testjob=$testjob"
+	#echo "$(date) Slot $c testjob=$testjob"
 	if [ "X$dumpjob" = "X" ]; then
 		#echo "max hostconcurrence reached for all hosts, pausing ${loopdelay}s to try again"
 		sleep $loopdelay
