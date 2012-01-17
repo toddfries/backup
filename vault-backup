@@ -1436,14 +1436,20 @@ do
 	retrycount=0
 	stderrpid=0
 
-	if [ skip -eq 0 ]; then
+	if [ skip -ne 0 ]; then
+		continue
+	fi
 
-	# Until the closing ), the below cannot presume global vars escape
+	if [ globalconcurrence -eq 1 ]; then
+	(
+		backupjob
+	)
+	else
 	(
 		backupjob
 	) & pid=$!
 	globaljobs[$c]=$pid
-	fi # skip=0
+	fi
 done 
 logfile="$globallogfile"
 wait ${globaljobs[*]}
