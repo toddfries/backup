@@ -327,7 +327,7 @@ log() {
 	_log "$(date +"$datefmt")" "$xtra$@"
 }
 
-globalstart=$SECONDS
+globalstart=$(date +%s)
 _log "$(date -r $globalstart +"$datefmt")" "pid $$: backup of $bkd/$dumplistname list starting"
 log "globalstart=$globalstart"
 log "logfile=$logfile"
@@ -625,14 +625,14 @@ do
 	echo "$(date) Slot $c assigned to ${hostof[$dumpjob]} ${dumps[$dumpjob]}" > /dev/tty
 
 	thisl=$l
-	start=$SECONDS
+	start=$(date +%s)
 
 	# only lock each host once per backup run
 	skip=0
 	if ! isin "${hostof[$dumpjob]}" $hosts; then
 		if ! trylock ${hostof[$dumpjob]}; then
 			log "Skipping '$f' (locked)"
-			stop=$SECONDS
+			stop=$(date +%s)
 			savedetails -0 -0 "$f" $((stop-start)) $thisl "host locked"
 			rm -f ${tmpfile}*
 			skip=1
@@ -1265,7 +1265,7 @@ do
 		sleep 1
 		kill $stderrpid
 	fi
-	stop=$SECONDS
+	stop=$(date +%s)
 
 	if [ -f "$outfile.stderr" -a fail -eq 0 ]; then
 		tail -4 "$outfile.stderr" | head -3 | bubble >> $logfile
@@ -1390,12 +1390,12 @@ if [ "$remotemirror" ]; then
 		fi
 			
 		if [ "$location" ]; then
-			mirrorstart=$SECONDS
+			mirrorstart=$(date +%s)
 			log "Mirroring backups to $location"
 			/usr/local/bin/rsync -rtqz --partial --inplace $bwlimit $rsyncargs \
 				--exclude=".*" $datadir/. $location
 			rm -f $tmpfile
-			mirrorstop=$SECONDS
+			mirrorstop=$(date +%s)
 			log "Mirror time $((mirrorstop-mirrorstart))s"
 			savedetails -0 -0 "mirror" $((mirrorstop-mirrorstart)) -
 		else
@@ -1403,7 +1403,7 @@ if [ "$remotemirror" ]; then
 		fi
 	fi
 fi
-globalend=$SECONDS
+globalend=$(date +%s)
 globaltime=$((globalend-globalstart))
 totsize="0"
 totucsize="0"
