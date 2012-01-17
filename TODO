@@ -1,3 +1,8 @@
+- delay listing creation until all backups are completed, it slows down disk
+  io, uses cpu time, and may permit more backups in a backup window to complete
+ - vs - 
+- use tee and fifos to send output to disk as well as a listing routine so as to
+  not read data back from disk once written just to get a file listing
 - figure out how to handle tar backups (including samba) where perms may
   have changed since last level and thus files are not being backed up
   because of this (per file storage/tracking/blocks dedup ?)
@@ -56,9 +61,6 @@ As spoken to a client:
    quickly process large volumes during recovery
  - create the .filelist `on the fly' while doing the backup; currently it
    requires a separate pass
- - compress via 'gzip' on the client instead of via ssh -C on the client,
-   decompressing on the backup host, and then re-compressing on the backup     
-   host
  - integrate openssl for passphrase encrypted backups
  - implement archiving to tape
 
@@ -123,3 +125,6 @@ x permit using '-h 0' flag of dump
   (implemented by default, have to code more to make it optional)
 x backup samba shares accessable only via smbclient on a remote system
   x sshsmb://user@hostname/authname@remotesambahost/remotesharename
+x compress via 'gzip' on the client instead of via ssh -C on the client,
+   decompressing on the backup host, and then re-compressing on the backup     
+   host
