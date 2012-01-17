@@ -550,6 +550,8 @@ decomp=""
 backupjob() {
 	if [ "$thisaprog" = "none" -a "$rmtaprog" != "none" ]; then
 		decomp="$rmtaprog"
+		compprog="$rmtaprog"
+		compopt="$rmtaopt"
 	else
 		decomp="$thisaprog"
 	fi
@@ -583,7 +585,7 @@ backupjob() {
 		if [ "$thisaprog" = "none" ]; then
 			backupmethod
 		else
-			backupmethod | $thisaprog -$aopt
+			backupmethod | $thisaprog -$thisaopt
 		fi > "$tmpfile" 2> "$tmpfile.stderr"
 		if [ "$(tailifexists -1 "$tmpfile.stderr" | egrep "$successcookie$" 2> /dev/null)" ] && \
 			! [ "$(tailifexists -10 "$tmpfile.stderr" | egrep -i "Connection reset by peer|Connection timed out| denied|failed|Command not found|Killed |^ssh:.*:Operation timed out" 2> /dev/null)" ]; then
@@ -592,10 +594,10 @@ backupjob() {
 			mv "$tmpfile.timestamp" "$outfile.timestamp" && \
 			mv "$tmpfile.stderr" "$outfile.stderr" && \
 			create "$outfile.$filelist"
-			listmethod 2> /dev/null | if [ "$thisaprog" = "none" ]; then
+			listmethod 2> /dev/null | if [ "$compprog" = "none" ]; then
 			    cat
 			else
-			    $thisaprog -$thisaopt
+			    $compprog -$compopt
 			fi > "$outfile.filelist"
 		else
 			fail=101
