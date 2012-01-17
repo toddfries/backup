@@ -1534,7 +1534,7 @@ setunit $totucsize
 tsize="$(printf "%.2f%-2s" "$sone" "$gunit")"
 _log "$(date -r $globalend +"$datefmt")" "pid $$: backup of $setname$dumplistsubj set completed"
 
-[ globalconcurrency -gt 1 ] && hostpos=9 || hostpos=8
+[ globalconcurrency -gt 1 ] && hostpos=10 || hostpos=9
 
 create "${sumfile}.tmp" "${sumfile}.total"
 if [ globalconcurrency -lt 10 -a c -gt 9 ]; then
