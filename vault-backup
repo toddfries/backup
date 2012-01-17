@@ -81,6 +81,8 @@ maxhist=0
 factor=0.6
 aprog=gzip
 aopt=9
+rmtaprog=none
+rmtaopt=9
 notify="root@$(hostname)"
 notifydetail=""
 usefstatforlock=0 # warning, setting to 1 may panic system due to fstat bugs
@@ -543,7 +545,14 @@ tailifexists() {
 		echo -n ""
 	fi
 }
+
+decomp=""
 backupjob() {
+	if [ "$thisaprog" = "none" -a "$rmtaprog" != "none" ]; then
+		decomp="$rmtaprog"
+	else
+		decomp="$thisaprog"
+	fi
 	# XXX make start= be stat of timestamp
 	create "$tmpfile.timestamp"
 	case "$thisl" in
@@ -646,7 +655,7 @@ backupjob() {
 		if [ "$thisaprog" = "none" ]; then
 			ucsize=$size
 		else
-			ucsize=$( echo $($thisaprog -d < "$outfile" | wc -c)+0 | bc)
+			ucsize=$( echo $($decomp -d < "$outfile" | wc -c)+0 | bc)
 		fi
 		echo "$size $ucsize" >> $statfile.$c
 		summdate="$(date -r $stop +"$datefmt")"
@@ -713,6 +722,8 @@ do
 	done
 	if [ duplicate -eq 0 ]; then
 		dumps[${#dumps[*]}]=$dump
+	else
+		log "Skipping duplicate dumplist entry $dump"
 	fi
 done
 #
@@ -994,7 +1005,7 @@ do
 			fi
 		}
 		listmethod() {
-			$thisaprog -d < "$outfile" | tar -tvf - | \
+			$decomp -d < "$outfile" | tar -tvf - | \
 				awk '	/^d/	{next} \
 					/^\-/	{ $1="";print} \
 						{print}'
@@ -1048,7 +1059,7 @@ do
 			    echo "returned $?" > /dev/stderr
 		}
 		listmethod() {
-			$thisaprog -d < "$outfile" | tar -tvf - | \
+			$decomp -d < "$outfile" | tar -tvf - | \
 				awk '	/^d/	{next} \
 					/^\-/	{ $1="";print} \
 						{print}'
@@ -1079,7 +1090,7 @@ do
 			$cmd $time "$timecmd" $args && echo "$successcookie" > /dev/stderr || echo "returned $?" > /dev/stderr
 		}
 		listmethod() {
-			$thisaprog -d < "$outfile" | restore -tyvf - | \
+			$decomp -d < "$outfile" | restore -tyvf - | \
 				awk '	/^dir/	{next} \
 					/leaf/	{ $1="";print} \
 						{print}'
@@ -1099,7 +1110,7 @@ do
 			$cmd && echo "$successcookie" > /dev/stderr || echo "returned $?" > /dev/stderr
 		}
 		listmethod() {
-			$thisaprog -d < "$outfile" | restore -tvyf - | \
+			$decomp -d < "$outfile" | restore -tvyf - | \
 				awk '	/^dir/	{next} \
 					/leaf/	{ $1="";print} \
 						{print}'
@@ -1142,7 +1153,7 @@ do
 			done
 		}
 		listmethod() {
-			$thisaprog -d < "$outfile" | restore -tvyf - | \
+			$decomp -d < "$outfile" | restore -tvyf - | \
 				awk '	/^dir/	{next} \
 					/leaf/	{ $1="";print} \
 						{print}'
@@ -1182,7 +1193,7 @@ do
 		}
 		listmethod() {
 			# For lack of other ideas, show schema but no data
-			$thisaprog -d < "$outfile" |
+			$decomp -d < "$outfile" |
 				awk '
 				/^--/		{next}
 				/^$/		{next}
@@ -1248,11 +1259,14 @@ do
 				timecmd="$(date -r $nfiltime +"%a %b %e %H:%M:%S %Y")"
 			fi
 			args="-0a -f - $file"
+			if [ "$rmtaprog" != "none" ]; then
+				args="$args | $rmtaprog -$rmtaopt"
+			fi
 			echo "$cmd $time $timecmd $args" > /dev/stderr
 			$cmd $time "'$timecmd'" $args && echo "$successcookie" > /dev/stderr || echo "returned $?" > /dev/stderr
 		}
 		listmethod() {
-			$thisaprog -d < "$outfile" | restore -tvyf - | \
+			$decomp -d < "$outfile" | restore -tvyf - | \
 				awk '	/^dir/	{next} \
 					/leaf/	{ $1="";print} \
 						{print}'
