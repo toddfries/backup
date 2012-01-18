@@ -161,6 +161,14 @@ cleanup() {
 		rm -f $f
 	done
 }
+# XXX not used yet
+compress() {
+	local prog="$1" opt="$2" verbose
+	case "$prog" in
+	gzip|lzma) verbose="v";;
+	esac
+	$prog -${verbose}${opt}
+}
 hardlock() {
 	local lockdir=$1
 	while ! mkdir $lockdir > /dev/null 2>&1
@@ -587,7 +595,7 @@ backupjob() {
 		if [ "$thisaprog" = "none" ]; then
 			backupmethod
 		else
-			backupmethod | $thisaprog -$thisaopt
+			backupmethod | $thisaprog -v$thisaopt
 		fi > "$tmpfile" 2> "$tmpfile.stderr"
 		if [ "$(tailifexists -1 "$tmpfile.stderr" | egrep "$successcookie$" 2> /dev/null)" ] && \
 			! [ "$(tailifexists -10 "$tmpfile.stderr" | egrep -i "Connection reset by peer|Connection timed out| denied|failed|Command not found|Killed |^ssh:.*:Operation timed out" 2> /dev/null)" ]; then
@@ -657,11 +665,13 @@ backupjob() {
 	fi
 
 	if [ -f "$outfile" -a fail -eq 0 ]; then
-		size=$(echo $(stat -f%z "$outfile")+0 | bc)
 		if [ "$thisaprog" = "none" -a "$rmtaprog" = "none" ]; then
+			size=$(echo $(stat -f%z "$outfile")+0 | bc)
 			ucsize=$size
 		else
-			ucsize=$( echo $($decomp -d < "$outfile" | wc -c)+0 | bc)
+			size=$(tail "${outfile}.stderr"|sed -n '/^[0-9][0-9]* bytes in/{s/^[0-9][0-9]* bytes in, \([0-9][0-9]*\) bytes out.*$/\1/;p;}')
+			ucsize=$(tail "${outfile}.stderr"|sed -n '/^[0-9][0-9]* bytes in/{s/^\([0-9][0-9]*\) bytes in, [0-9][0-9]* bytes out.*$/\1/;p;}')
+			#ucsize=$( echo $($decomp -d < "$outfile" | wc -c)+0 | bc)
 		fi
 		echo "$size $ucsize" >> $statfile.$c
 		summdate="$(date -r $stop +"$datefmt")"
@@ -894,7 +904,7 @@ do
 
 			  cmd="$smbclient -d2 -E -A%s \"//$smbhost/$smbshare\" -D / -c 'tarmode full' -Tc%s %s -"
 			  if [ "$rmtaopt" != "none" ]; then
-				cmd="$cmd | $rmtaprog -$rmtaopt"
+				cmd="$cmd | $rmtaprog -v$rmtaopt"
 			  fi
 			  echo "$cmd" $auth $nopt "$nfil" >> $tmpsmb
 			  {
@@ -965,7 +975,7 @@ do
 				$smbclient -d2 -E -A$auth "//$host/$smbshare" -D "$smbsubdir" \
 					-c 'tarmode full' -Tc  - && echo "$successcookie" > $tmpsmb || echo "returned $?" > $tmpsmb
 			  fi | if [ "$rmtaprog" != "none" ]; then
-				$rmtaprog -$rmtaopt
+				$rmtaprog -v$rmtaopt
 			else
 				cat
 			fi
@@ -1008,7 +1018,7 @@ do
 			fi
 			args=". $file"
 			if [ "$rmtaprog" != "none" ]; then
-				args="$args | $rmtaprog -$rmtaopt"
+				args="$args | $rmtaprog -v$rmtaopt"
 			fi
 			echo "$cmd $args" > /dev/stderr
 			if [ -d $file ]; then
@@ -1044,7 +1054,7 @@ do
 			# would like -O but FreeBSD doesn't have it, bah
 			cmd="cd "\$dir" && find \"\$path\" -xdev %s -print | pax -wdv "
 			if [ "$rmtaprog" != "none" ]; then
-				cmd="$cmd | $rmtaprog -$rmtaopt"
+				cmd="$cmd | $rmtaprog -v$rmtaopt"
 			fi
 			cmd="$cmd || exit 1"
 			printf "authuser=$authuser nopt=$nopt nfil=$nfil\n" > /dev/stderr
@@ -1108,7 +1118,7 @@ do
 			args="-0a -f - $file"
 			echo "$cmd $time $timecmd $args" > /dev/stderr
 			if [ "$rmtaprog" != "none" ]; then
-				$cmd $time "$timecmd" $args | $rmtaprog -$rmtaopt
+				$cmd $time "$timecmd" $args | $rmtaprog -v$rmtaopt
 			else
 				$cmd $time "$timecmd" $args
 			fi && echo "$successcookie" > /dev/stderr || echo "returned $?" > /dev/stderr
@@ -1131,7 +1141,7 @@ do
 			cmd=$(sshcmdline $authuser $host $sshhost)
 			cmd="$cmd /usr/sbin/backup -${thisl}uf - $file "
 			if [ "$rmtaprog" != "none" ]; then
-				cmd="$cmd | $rmtaprog -$rmtaopt"
+				cmd="$cmd | $rmtaprog -v$rmtaopt"
 			fi
 			echo "$cmd" > /dev/stderr
 			$cmd && echo "$successcookie" > /dev/stderr || echo "returned $?" > /dev/stderr
@@ -1159,7 +1169,7 @@ do
 
 			  cmd="[ -d \"$file\" ] && cd $file && find . -xdev %s -print | tee \$d/list | /usr/sbin/backup -ivf -"
 			  if [ "$rmtaprog" != "none" ]; then
-				cmd="$cmd | $rmtaprog -$rmtaopt"
+				cmd="$cmd | $rmtaprog -v$rmtaopt"
 			  fi
 			  printf "auth=$auth nopt=$nopt nfil=$nfil\nCommand: " >> $tmpbn
 			  {
@@ -1261,7 +1271,7 @@ do
 				args="-0a -f - $file"
 				echo " /sbin/dump -h 0 $time $timecmd $args" > /dev/stderr
 				echo " cmd=$cmd" > /dev/stderr
-				echo "/sbin/dump -h 0 $time '$timecmd' $args | $aprog -$aopt | gpg -e -r todd@fries.net -z 0"
+				echo "/sbin/dump -h 0 $time '$timecmd' $args | $aprog -v$aopt | gpg -e -r todd@fries.net -z 0"
 			} | $cmd sh && echo "$successcookie" > /dev/stderr || echo "returned $?" > /dev/stderr
 			# XXX 1. create tempdir on remote system
 			# XXX 2. copy gpg key
@@ -1290,7 +1300,7 @@ do
 			fi
 			args="-0a -f - $file"
 			if [ "$rmtaprog" != "none" ]; then
-				args="$args | $rmtaprog -$rmtaopt"
+				args="$args | $rmtaprog -v$rmtaopt"
 			fi
 			echo "$cmd $time $timecmd $args" > /dev/stderr
 			$cmd $time "'$timecmd'" $args && echo "$successcookie" > /dev/stderr || echo "returned $?" > /dev/stderr
@@ -1319,7 +1329,7 @@ do
 			fi
 			cmd="$cmd -localauth"
 			if [ "$rmtaprog" != "none" ]; then
-				cmd="$cmd | $rmtaprog -$rmtaopt"
+				cmd="$cmd | $rmtaprog -v$rmtaopt"
 			fi
 			echo "$cmd" > /dev/stderr
 			$cmd && echo "$successcookie" > /dev/stderr || echo "returned $?" > /dev/stderr
