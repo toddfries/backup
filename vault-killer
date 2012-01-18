@@ -19,7 +19,7 @@ echo "Checking to be sure backups are stopped"
 kills=0
 while :; do
 	# if vault-backup is running, it might spawn more ssh sessions
-	set -A pids $(pgrep -u _backup -f "(ksh ./vault-backup|ssh)")
+	set -A pids $(pgrep -u _backup -f "(ksh .*/vault-backup|ssh)")
 	if [ ${#pids[*]} -eq 0 ]; then
 		break
 	fi
