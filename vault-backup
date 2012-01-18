@@ -651,7 +651,9 @@ backupjob() {
 	let stop=globalstart+SECONDS
 
 	if [ -f "$outfile.stderr" -a fail -eq 0 ]; then
-		tailifexists -4 "$outfile.stderr" | head -3 | bubble >> $logfile
+		# make the tail and head #'s jive with no compression vs compression
+		# the below #'s presume compression
+		tailifexists -6 "$outfile.stderr" | head -3 | bubble >> $logfile
 	else
 		if ! [ -f "${tmpfile}.stderr" ]; then
 		    {
