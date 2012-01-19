@@ -667,13 +667,13 @@ backupjob() {
 	fi
 
 	if [ -f "$outfile" -a fail -eq 0 ]; then
+		size=$(echo $(stat -f%z "$outfile")+0 | bc)
 		if [ "$thisaprog" = "none" -a "$rmtaprog" = "none" ]; then
-			size=$(echo $(stat -f%z "$outfile")+0 | bc)
 			ucsize=$size
 		else
-			size=$(echo "$(tail "${outfile}.stderr"|sed -n '/^[0-9][0-9]* bytes in/{s/^[0-9][0-9]* bytes in, \([0-9][0-9]*\) bytes out.*$/\1/;p;}')+0"|bc)
-			ucsize=$(echo "$(tail "${outfile}.stderr"|sed -n '/^[0-9][0-9]* bytes in/{s/^\([0-9][0-9]*\) bytes in, [0-9][0-9]* bytes out.*$/\1/;p;}')+0"|bc)
-			#ucsize=$( echo $($decomp -d < "$outfile" | wc -c)+0 | bc)
+			ucsize=$( echo $($decomp -d < "$outfile" | wc -c)+0 | bc)
+			#size=$(echo "$(tail "${outfile}.stderr"|sed -n '/^[0-9][0-9]* bytes in/{s/^[0-9][0-9]* bytes in, \([0-9][0-9]*\) bytes out.*$/\1/;p;}')+0"|bc)
+			#ucsize=$(echo "$(tail "${outfile}.stderr"|sed -n '/^[0-9][0-9]* bytes in/{s/^\([0-9][0-9]*\) bytes in, [0-9][0-9]* bytes out.*$/\1/;p;}')+0"|bc)
 		fi
 		echo "$size $ucsize" >> $statfile.$c
 		summdate="$(date -r $stop +"$datefmt")"
