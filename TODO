@@ -1,3 +1,5 @@
+- insert another while loop into job selection logic to first try with 1 host
+  concurrence, then 2, up to $hostconcurrence
 - delay listing creation until all backups are completed, it slows down disk
   io, uses cpu time, and may permit more backups in a backup window to complete
  - vs - 
