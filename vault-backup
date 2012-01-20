@@ -326,8 +326,8 @@ create $logfile $sumfile
 echo "Start Date: $(date +"%a, %e %b %Y %H:%M:%S %z (%Z)")"
 echo
 [ globalconcurrence -gt 1 ] && {
-	echo "Max global conurrence   = $globalconcurrence"
-	echo "Max per host conurrence = $hostconcurrence"
+	echo "Max global concurrence   = $globalconcurrence"
+	echo "Max per host concurrence = $hostconcurrence"
 	echo
 	[ globalconcurrence -gt 9 ] && echo -n " "
 	echo -n "P"
