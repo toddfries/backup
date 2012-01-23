@@ -633,13 +633,11 @@ backupjob() {
 			mv "$tmpfile.timestamp" "$outfile.timestamp" && \
 			mv "$tmpfile.stderr" "$outfile.stderr" && \
 			create "$outfile.$filelist"
-			#set -x
 			listmethod 2> /dev/null | if [ "$compprog" = "none" ]; then
 			    cat
 			else
 			    $compprog -$compopt
 			fi > "$outfile.filelist"
-			#set +x
 		fi
 		break
 	done
@@ -725,7 +723,7 @@ if [ rsynconly -eq 0 ]; then
 
 # load the dumplist as a unique list of dumps
 set -A dumps 
-for dump in $(sed 's/#.*$//;/^$/d' $bkd/$dumplistname)
+for dump in $(sed 's/#.*$//;/^$/d;s/ /%SPACE%/g' $bkd/$dumplistname)
 do
 	c=0
 	duplicate=0
@@ -738,10 +736,10 @@ do
 		let c=c+1
 	done
 	if [ duplicate -eq 0 ]; then
-		dumps[${#dumps[*]}]=$dump
-	else
+		dumps[${#dumps[*]}]="$dump"
 		log "Skipping duplicate dumplist entry $dump"
 	fi
+	#echo "dump $dump"
 done
 #
 # init globaljobs[] .. for a maximum of globalconcurrence or ${#dumps[*]}
@@ -806,20 +804,27 @@ do
 		done
 		sleep $loopdelay
 	done
-	#echo $(date) Slot $c open dumpcount=$dumpcount dumps=${#dumps[*]} > $tty
+	if [ verbose -gt 0 ]; then
+		echo $(date) Slot $c open dumpcount=$dumpcount dumps=${#dumps[*]} > $tty
+	fi
 
 	# now that we have an available slot, search for a dump that matches hostconcurrence settings
 	dumpjob=""
 	testjob=0
 	while [ testjob -lt ${#dumps[*]} ]
 	do
+		if [ verbose -gt 0 ]; then
+			echo $(date) testjob=$testjob
+		fi
 		if [ ${started[$testjob]} -eq 1 ]; then
 			let testjob=testjob+1
 			continue
 		fi
-		if [ $(hostconcount "${hostof[$testjob]}") -ge hostconcurrence ]; then
-			let testjob=testjob+1
-			continue
+		if ! [ globalconcurrence -eq 1 ]; then
+			if [ $(hostconcount "${hostof[$testjob]}") -ge hostconcurrence ]; then
+				let testjob=testjob+1
+				continue
+			fi
 		fi
 		dumpjob=$testjob
 		break
@@ -850,7 +855,9 @@ do
 			break
 		fi
 	fi
-	#echo "$(date) Slot $c testjob=$testjob"
+	if [ verbose -gt 0 ]; then
+		echo "$(date) Slot $c testjob=$testjob"
+	fi
 	if [ "X$dumpjob" = "X" ]; then
 		#echo "max hostconcurrence reached for all hosts, pausing ${loopdelay}s to try again"
 		sleep $loopdelay
