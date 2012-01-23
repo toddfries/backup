@@ -597,8 +597,37 @@ backupjob() {
 		else
 			backupmethod | $thisaprog -v$thisaopt
 		fi > "$tmpfile" 2> "$tmpfile.stderr"
-		if [ "$(tailifexists -1 "$tmpfile.stderr" | egrep "$successcookie$" 2> /dev/null)" ] && \
-			! [ "$(tailifexists -10 "$tmpfile.stderr" | egrep -i "Connection reset by peer|Connection timed out| denied|failed|Command not found|Killed |^ssh:.*:Operation timed out" 2> /dev/null)" ]; then
+		if [ "$(tailifexists -1 "$tmpfile.stderr" | egrep "$successcookie$" 2> /dev/null)" ]; then
+			if [ "$(tailifexists -10 "$tmpfile.stderr" | egrep -i "Connection reset by peer|Connection timed out| denied|failed|Command not found|Killed |^ssh:.*:Operation timed out" 2> /dev/null)" ]; then
+				fail=101
+			fi
+			if [ "$(tailifexists -2 "$tmpfile.stderr" | grep "session setup failed: NT_STATUS_PASSWORD_EXPIRED")" ]; then
+				fail=103
+				log "password expired, please reset"
+				# XXX implement password reset procedure
+			fi
+			if [ "$(tailifexists -2 "$tmpfile.stderr" | grep "no pg_hba.conf entry for host")" ]; then
+				fail=104
+			fi
+			if [ "$( tailifexists -10 "$outfile.stderr" | grep "no address associated" )" ]
+			then
+				fail=102
+				log "DNS failure for '$f', Retrying..."
+			fi
+			if [ "$( tailifexists -10 "$outfile.stderr" | egrep "^Terminated$" )" ]; then
+				fail=106
+			fi
+			if [ "$( tailifexists -10 "$outfile.stderr" | egrep "^Permission denied " )" ]; then
+				fail=107
+			fi
+			if [ "$( tailifexists -10 "$outfile.stderr" | egrep "^cannot get raw name for mfs:" )" ]; then
+				fail=108
+			fi
+			if [ fail -gt 0 ]; then
+				let retrycount=retrycount+1
+				[ retrycount -le maxretry ] && log "'$f' failed, retrying... $retrycount of $maxretry"
+				continue
+			fi
 			rotate "$outfile"
 			mv "$tmpfile" "$outfile" && \
 			mv "$tmpfile.timestamp" "$outfile.timestamp" && \
@@ -611,37 +640,7 @@ backupjob() {
 			    $compprog -$compopt
 			fi > "$outfile.filelist"
 			#set +x
-		else
-			fail=101
-			if [ "$(tailifexists -2 "$tmpfile.stderr" | grep "session setup failed: NT_STATUS_PASSWORD_EXPIRED")" ]; then
-				fail=103
-				let retrycount=maxretry+1
-				log "password expired, please reset"
-				# XXX implement password reset procedure
-			fi
-			if [ "$(tailifexists -2 "$tmpfile.stderr" | grep "no pg_hba.conf entry for host")" ]; then
-				fail=104
-			fi
-			let retrycount=retrycount+1
-			[ retrycount -le maxretry ] && log "'$f' failed, retrying... $retrycount of $maxretry"
-			continue
 		fi
-		if [ "$( tailifexists -10 "$outfile.stderr" | grep "no address associated" )" ]
-		then
-			fail=102
-			log "DNS failure for '$f', Retrying..."
-			let retrycount=retrycount+1
-			continue
-		fi
-			if [ "$( tailifexists -10 "$outfile.stderr" | egrep "^Terminated$" )" ]; then
-				fail=106
-			fi
-			if [ "$( tailifexists -10 "$outfile.stderr" | egrep "^Permission denied " )" ]; then
-				fail=107
-			fi
-			if [ "$( tailifexists -10 "$outfile.stderr" | egrep "^cannot get raw name for mfs:" )" ]; then
-				fail=108
-			fi
 		break
 	done
 	if [ stderrpid -gt 0 ]; then
