@@ -597,7 +597,7 @@ backupjob() {
 		else
 			backupmethod | $thisaprog -v$thisaopt
 		fi > "$tmpfile" 2> "$tmpfile.stderr"
-		if [ "$(tailifexists -1 "$tmpfile.stderr" | egrep "$successcookie$" 2> /dev/null)" ] && \
+		if [ "$(tailifexists -3 "$tmpfile.stderr" | egrep "$successcookie$" 2> /dev/null)" ] && \
 			! [ "$(tailifexists -10 "$tmpfile.stderr" | egrep -i "Connection reset by peer|Connection timed out| denied|failed|Command not found|Killed |^ssh:.*:Operation timed out" 2> /dev/null)" ]; then
 			rotate "$outfile"
 			mv "$tmpfile" "$outfile" && \
