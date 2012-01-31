@@ -86,8 +86,8 @@ rmtaopt=9
 notify="root@$(hostname)"
 notifydetail=""
 usefstatforlock=0 # warning, setting to 1 may panic system due to fstat bugs
-houraftertime=19
-hourbeforetime=6
+houraftertime=1
+hourbeforetime=2
 globalconcurrence=1 # how many concurrent runs globally?
 hostconcurrence=1 # how many concurrent runs per host?
 
@@ -321,7 +321,7 @@ details=""
 logfile="$datadir/$setname.$(date +%Y%m%d%H%M%S).log"
 sumfile="${logfile%*.log}.summary"
 statfile="${logfile%*.log}.stats"
-create $logfile $sumfile
+create $logfile $sumfile ${statfile}.0
 {
 echo "Start Date: $(date +"%a, %e %b %Y %H:%M:%S %z (%Z)")"
 echo
