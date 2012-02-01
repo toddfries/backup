@@ -571,6 +571,7 @@ backupjob() {
 	fi
 	# XXX make start= be stat of timestamp
 	create "$tmpfile.timestamp"
+	( eval `stat -s $tmpfile.timestamp`; echo $st_ctime > $tmpfile.timestamp; )
 	case "$thisl" in
 	0)
 	;;
@@ -1564,8 +1565,13 @@ if [ "$ftparchive" ]; then
 			done < $tmpdir/dumpfiles
 		) > $tmpdir/ftpcmds
 		ftp -v $ftparchive < $tmpdir/ftpcmds > $tmpdir/ftp.log 2>&1
-		cat $tmpdir/ftpcmds | bubble >> $logfile
-		cat $tmpdir/ftp.log | bubble >> $logfile
+		for f in $tmpdir/ftp{cmds,.log}
+		do
+			{
+				echo "====> $(basename $f)"
+				cat $f
+			} | bubble >> $logfile
+		done
 		let ftpstop=globalstart+SECONDS
 		log "FTP Archive time $((ftpstop-ftpstart))s"
 		savedetails -0 -0 "FTP_Archive" $((ftpstop-ftpstart)) -
