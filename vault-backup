@@ -19,6 +19,7 @@ if [ "$user" != "_backup" ]; then
 	echo "This script should only be run as user _backup"
 	exit 1
 fi
+HOME=~_backup
 
 rsynconly=0
 verbose=0
@@ -140,6 +141,8 @@ else
 	exit 5
 fi
 
+tmpdir="$(mktemp -d "$datadir/.vault-backup.XXXXXXXXXXX")"
+
 sshxtra="$sshxtra -o BatchMode=yes -o ServerAliveInterval=3600 -o ServerAliveCountMax=23 -o TCPKeepAlive=no "
 
 #
@@ -160,6 +163,7 @@ cleanup() {
 	do
 		rm -f $f
 	done
+	[ -d "$tmpdir" ] && rm -rf "$tmpdir"
 }
 # XXX not used yet
 compress() {
@@ -676,6 +680,7 @@ backupjob() {
 		summdate="$(date -r $stop +"$datefmt")"
 		_log "$summdate" "Stop  of this level $thisl"
 		savedetails $size $ucsize "$f" $((stop-start)) $thisl
+		echo "$outfile\n$outfile.timestamp\n$outfile.stderr\n$outfile.filelist" >> $tmpdir/dumpfiles
 	else
 		if [ -f "$tmpfile.stderr" ]; then
 		    {
@@ -1540,6 +1545,35 @@ if [ "$remotemirror" ]; then
 		fi
 	fi
 fi
+
+# ftparchive should be of the form
+#  ftp://user@host/subdir/
+# use .netrc to specify user, etc
+#
+if [ "$ftparchive" ]; then
+	if ! [ "$(pgrep -u _backup ftp)" ]; then
+		let ftpstart=globalstart+SECONDS
+		log "FTP Archiving backups to $ftparchive"
+		(
+			echo pwd
+			echo bin
+			while read dumpfile
+			do
+				echo lcd $(dirname $dumpfile)
+				echo put $(basename $dumpfile)
+			done < $tmpdir/dumpfiles
+		) > $tmpdir/ftpcmds
+		ftp -v $ftparchive < $tmpdir/ftpcmds > $tmpdir/ftp.log 2>&1
+		cat $tmpdir/ftpcmds | bubble >> $logfile
+		cat $tmpdir/ftp.log | bubble >> $logfile
+		let ftpstop=globalstart+SECONDS
+		log "FTP Archive time $((ftpstop-ftpstart))s"
+		savedetails -0 -0 "FTP_Archive" $((ftpstop-ftpstart)) -
+	else
+		log "ftp already running, no ftp archive this round"
+	fi
+fi
+		
 let globalend=globalstart+SECONDS
 globaltime=$((globalend-globalstart))
 totsize="0"
