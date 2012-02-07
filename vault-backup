@@ -811,7 +811,7 @@ do
 		sleep $loopdelay
 	done
 	if [ verbose -gt 0 ]; then
-		echo $(date) Slot $c open dumpcount=$dumpcount dumps=${#dumps[*]} > $tty
+		echo "$(date) Slot $c open dumpcount=$dumpcount dumps=${#dumps[*]}" > $tty
 	fi
 
 	# now that we have an available slot, search for a dump that matches hostconcurrence settings
@@ -819,7 +819,7 @@ do
 	testjob=0
 	while [ testjob -lt ${#dumps[*]} ]
 	do
-		if [ verbose -gt 0 ]; then
+		if [ verbose -gt 1 ]; then
 			echo $(date) testjob=$testjob
 		fi
 		if [ ${started[$testjob]} -eq 1 ]; then
@@ -1476,7 +1476,11 @@ do
 	fi
 done 
 logfile="$globallogfile"
-wait ${globaljobs[*]}
+if [ ${#globaljobs[*]} -gt 0 ]; then
+	if [ "$(jobs ${globaljobs[*]})" ]; then
+		wait ${globaljobs[*]}
+	fi
+fi
 for host in $hosts
 do
 	unlock $trylockdir-$host
