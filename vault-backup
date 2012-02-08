@@ -1476,7 +1476,7 @@ do
 	fi
 done 
 logfile="$globallogfile"
-if [ ${#globaljobs[*]} -gt 0 ]; then
+if [ ${#globaljobs[*]} -gt 0 -a globalconcurrence -gt 1 ]; then
 	if [ "$(jobs ${globaljobs[*]})" ]; then
 		wait ${globaljobs[*]}
 	fi
