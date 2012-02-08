@@ -1,3 +1,9 @@
+- use perl to pipe archive storage to a variable location, including local + remote
+  remoteonly, etc.  remote mechanisms include: ftp, samba, http
+- while pipe'ing through perl storage, use perl to count bits and pipe filelisting
+  to yet another perl storage module
+    ::archivestorage - save an archive of type $method
+    ::archivestorage::method - save a file (data, timestamp, stderr, filelist), called from archivestorage
 - insert another while loop into job selection logic to first try with 1 host
   concurrence, then 2, up to $hostconcurrence
 - delay listing creation until all backups are completed, it slows down disk
@@ -45,7 +51,6 @@
  - permit copying the authorized_keys file into place and setting up the
    remote backup script
 
-- implement archiving to tape or other storage, e.g. epitome, ftp
 - update sshsmb to match smb regarding smbshare/smbdir
 - write recover script to restore data
   - for 'vos dump' output, there is one line of text to remove, something like
@@ -117,6 +122,7 @@ As spoken to a client:
    02/06/2008 13:51:08 CST uncomp. 271.98GB vs comp. 260.63GB
    02/06/2008 13:51:08 CST uncomp. 0.00GB/s vs comp. 0.00GB/s
    02/06/2008 13:51:08 CST comp. 95.82%, ratio 4.18%
+- implement archiving to tape or other storage, e.g. epitome, ftp
 10/10/2008
 x error cleanup, don't leave unfinished backups lying around
   x use trap
