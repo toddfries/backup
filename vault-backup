@@ -757,6 +757,7 @@ do
 	done
 	if [ duplicate -eq 0 ]; then
 		dumps[${#dumps[*]}]="$dump"
+	else
 		log "Skipping duplicate dumplist entry $dump"
 	fi
 	#echo "dump $dump"
