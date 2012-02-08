@@ -1377,7 +1377,7 @@ do
 		# smaller!
 		let thisk=thisl-1
 		if [ -f "$host/$fn.${thisl}" -a -f "$host/$fn.${thisl}.timestamp" -a \
-		     -f "$host/$fn.${thisk}" -a -f "$host/$fn.${thisk}.timestamp"
+		     -f "$host/$fn.${thisk}" -a -f "$host/$fn.${thisk}.timestamp" \
 		    ]; then
 			size0=$(file_seconds "$host/$fn.$thisk")
 			size1=$(file_seconds "$host/$fn.$thisl")
