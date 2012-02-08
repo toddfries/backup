@@ -322,12 +322,12 @@ savedetails() {
 }
 
 details=""
-logfile="$datadir/$setname.$(date +%Y%m%d%H%M%S).log"
+logfile="$datadir/$setname.$(date -r $globalstart +%Y%m%d%H%M%S).log"
 sumfile="${logfile%*.log}.summary"
 statfile="${logfile%*.log}.stats"
 create $logfile $sumfile ${statfile}.0
 {
-echo "Start Date: $(date +"%a, %e %b %Y %H:%M:%S %z (%Z)")"
+echo "Start Date: $(date -r $globalstart +"%a, %e %b %Y %H:%M:%S %z (%Z)")"
 echo
 [ globalconcurrence -gt 1 ] && {
 	echo "Max global concurrence   = $globalconcurrence"
@@ -354,14 +354,14 @@ log() {
 }
 
 _log "$(date -r $globalstart +"$datefmt")" "pid $$: backup of $bkd/$dumplistname list starting"
-log "globalstart=$globalstart"
+log "globalstart=$globalstart ($(date -r $globalstart))"
 log "logfile=$logfile"
 tailpid=0
 
-dayofweek=$(date +%w)
+dayofweek=$(date -r $globalstart +%w)
 l=${levels[$dayofweek]}
 
-m=$( date +%d )
+m=$( date -r $globalstart +%d )
 
 
 rotate() {
@@ -1612,7 +1612,7 @@ setunit $totucsize
 tsize="$(printf "%.2f%-2s" "$sone" "$gunit")"
 _log "$(date -r $globalend +"$datefmt")" "pid $$: backup of $setname$dumplistsubj set completed"
 
-[ globalconcurrency -gt 1 ] && hostpos=10 || hostpos=9
+[ globalconcurrency -gt 1 ] && hostpos=10 || hostpos=10
 
 create "${sumfile}.tmp" "${sumfile}.total"
 if [ globalconcurrency -lt 10 -a c -gt 9 ]; then
