@@ -571,7 +571,7 @@ backupjob() {
 	fi
 	# XXX make start= be stat of timestamp
 	create "$tmpfile.timestamp"
-	( eval `stat -s $tmpfile.timestamp`; echo $st_ctime > $tmpfile.timestamp; )
+	( eval `stat -s $tmpfile.timestamp`; echo ctime=$st_ctime > $tmpfile.timestamp; )
 	case "$thisl" in
 	0)
 	;;
@@ -1363,8 +1363,7 @@ do
 		# smaller!
 		let thisk=thisl-1
 		if [ -f "$host/$fn.${thisl}" -a -f "$host/$fn.${thisl}.timestamp" -a \
-		     -f "$host/$fn.${thisk}" -a -f "$host/$fn.${thisk}.timestamp" -a \
-			"$host/$fn.${thisk}.timestamp" -ot "$host/$fn.${thisl}.timestamp" \
+		     -f "$host/$fn.${thisk}" -a -f "$host/$fn.${thisk}.timestamp"
 		    ]; then
 			set -A stat0 -- $(ls -ndlL "$host/$fn.$thisk")
 			set -A stat1 -- $(ls -ndlL "$host/$fn.$thisl")
@@ -1487,6 +1486,10 @@ do
 done
 fi # rsynconly
 
+# this forces below 'log' entries to be after backup runs, not before
+
+let c=c+globalconcurrence
+
 # remotemirror should be of the form
 #  mirror://user@host/subdir
 #    or
@@ -1588,7 +1591,6 @@ let globalend=globalstart+SECONDS
 globaltime=$((globalend-globalstart))
 totsize="0"
 totucsize="0"
-let c=c+globalconcurrence
 cat ${statfile}.[0-9]* | {
 while read size ucsize
 do
