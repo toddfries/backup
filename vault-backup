@@ -1566,7 +1566,8 @@ fi
 # use .netrc to specify user, etc
 #
 if [ "$ftparchive" ]; then
-	if ! [ "$(pgrep -u _backup ftp)" ]; then
+	# doubling up on ftp isn't going to hurt, right?
+	if ! [ "$(pgrep -u _backup ftp)" ] || true; then
 		let ftpstart=globalstart+SECONDS
 		log "FTP Archiving backups to $ftparchive"
 		(
