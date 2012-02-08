@@ -1,3 +1,6 @@
+- split out vault-ftpstorage so it can be used to retrieve files from ftp storage,
+  as well as sync local archives to ftp storage in the likely event some ftp's fail
+  at one point or another
 - use perl to pipe archive storage to a variable location, including local + remote
   remoteonly, etc.  remote mechanisms include: ftp, samba, http
 - while pipe'ing through perl storage, use perl to count bits and pipe filelisting
