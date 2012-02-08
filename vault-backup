@@ -719,6 +719,20 @@ backupjob() {
 		savedetails -0 -0 "$f" $((stop-start)) $thisl "$why"
 	fi
 }
+file_seconds() {
+	if [ -s "$1" -a "$(grep "^ctime=" "$1")" ]; then
+		sed -n '/^ctime=/{s/^ctime=//;p;}' "$1"
+		return
+	fi
+	set -A stat0 -- $(ls -ndlL "$1")
+	local soff=0
+	case "`uname -s`" in
+	FreeBSD) soff=4;;
+	OpenBSD) soff=4;;
+	*) reportls ;;
+	esac
+	echo ${stat0[${soff}]}
+}
 
 smbclient=/usr/local/bin/smbclient
 smbpasswd=/usr/local/bin/smbpasswd
@@ -1365,16 +1379,8 @@ do
 		if [ -f "$host/$fn.${thisl}" -a -f "$host/$fn.${thisl}.timestamp" -a \
 		     -f "$host/$fn.${thisk}" -a -f "$host/$fn.${thisk}.timestamp"
 		    ]; then
-			set -A stat0 -- $(ls -ndlL "$host/$fn.$thisk")
-			set -A stat1 -- $(ls -ndlL "$host/$fn.$thisl")
-			soff=0
-			case "`uname -s`" in
-			FreeBSD) soff=4;;
-			OpenBSD) soff=4;;
-			*) reportls ;;
-			esac
-			size0=${stat0[${soff}]}
-			size1=${stat1[${soff}]}
+			size0=$(file_seconds "$host/$fn.$thisk")
+			size1=$(file_seconds "$host/$fn.$thisl")
 			# verify size0 is a number and greater than zero, or punt
 			if [ $(echo "$size0 > 0"|bc) -eq 0 ]; then
 				reportls
