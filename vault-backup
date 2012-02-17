@@ -1250,7 +1250,7 @@ do
 			cmd=$(sshcmdline $authuser $host $sshhost)
 			cmd="$cmd $envargs /opt/IBM/informix/bin/ontape -s "
 			# ontape -L only accepts 0,1,2 so cap at 2 here
-			local maxifxlevel=1
+			local maxifxlevel=2
 			if [ thisl -lt $((maxifslevel+1)) ]; then
 				ifxlevel=$thisl
 			else
@@ -1265,7 +1265,7 @@ do
 				nlcount=0
 				nlmax=1
 				if [ ifxlevel -eq 2 ]; then
-					nlmax=100
+					nlmax=2
 				fi
 				while [ nlcount -lt nlmax ]
 				do
