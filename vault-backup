@@ -1634,6 +1634,19 @@ if [ "$ftparchive" ]; then
 			cat $f
 		} | bubble >> $logfile
 	done
+	{
+		for dumpdir in $(while read dumpfile; do dirname $dumpfile; done < $tmpdir/dumpfiles | sort -u)
+		do
+			echo "      $dumpdir"
+			/usr/local/sbin/vault-ftpsync "$ftparchive" "$tmpdir" "$dumpdir"
+		done
+	} > $tmpdir/ftpsync.log 2>&1
+	if [ -s $tmpdir/ftpsync.log ]; then
+		{
+			echo "====> ftpsync"
+			cat $tmpdir/ftpsync.log
+		} | bubble >> $logfile
+	fi
 	let ftpstop=globalstart+SECONDS
 	log "FTP Archive time $((ftpstop-ftpstart))s"
 	savedetails -0 -0 "FTP_Archive" $((ftpstop-ftpstart)) -
