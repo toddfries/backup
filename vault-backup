@@ -1228,6 +1228,55 @@ do
 						{print}'
 		}
 	;;
+	ifxdump*) # ifxdump://user@host/
+		method=ifxdump
+		host=$(echo "$f" | sed 's,ifxdump://.*@\([^/]*\)/.*$,\1,')
+		authuser=$(echo "$f" | sed 's,ifxdump://\(.*\)@.*/.*$,\1,')
+		parms=$(echo "$f" | sed 's,ifxdump://.*@[^/]*/\(.*\)$,\1,')
+		envargs=""
+		if [ "${parms}" ]; then
+			envargs="env"
+			nparms={parms%%/*}
+			for _a in $(echo ${parms#${nparms}/}|sed 's,/, ,g;s,%2f,/,g')
+			do
+				envargs="$envargs ${_a}"
+			done
+		fi
+		file="${host}-IFXDUMP"
+		f="$host:IFXDUMP"
+		sshhost=$(netcheckhost "$host")
+		backupmethod() {
+			local ifxlevel=$thisl
+			cmd=$(sshcmdline $authuser $host $sshhost)
+			cmd="$cmd $envargs /opt/IBM/informix/bin/ontape -s "
+			# ontape -L only accepts 0,1,2 so cap at 2 here
+			local maxifxlevel=1
+			if [ thisl -lt $((maxifslevel+1)) ]; then
+				ifxlevel=$thisl
+			else
+				ifxlevel=$maxifxlevel
+			fi
+			args="-L $ifxlevel -t STDIO"
+			if [ "$rmtaprog" != "none" ]; then
+				args="$args | $rmtaprog -v$rmtaopt"
+			fi
+			echo "$cmd $args" > /dev/stderr
+			{
+				nlcount=0
+				nlmax=1
+				if [ ifxlevel -eq 2 ]; then
+					nlmax=100
+				fi
+				while [ nlcount -lt nlmax ]
+				do
+					echo
+					let nlcount=nlcount+1
+				done
+			} | $cmd $args && echo "$successcookie" > /dev/stderr || echo "returned $?" > /dev/stderr
+		}
+		listmethod() {
+		}
+	;;
 	pgdump*) # pgdump://user@host:port/database[/-option/-option]
 		method=pgdump
 		host=$(echo "$f" | sed 's,pgdump://.*@\([^/]*\)/.*$,\1,')
