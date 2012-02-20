@@ -1,0 +1,88 @@
+#!/bin/ksh
+
+# Copyright (c) 2001-2010 Todd T. Fries <todd@fries.net>
+#
+# Permission to use, copy, modify, and distribute this software for any
+# purpose with or without fee is hereby granted, provided that the above
+# copyright notice and this permission notice appear in all copies.
+#
+# THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+# WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+# MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+# ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+# WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+# ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+# OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+
+user=$(awk -v id=`id -u` -F: '$3 == id {print $1}' /etc/passwd)
+if [ "$user" != "_backup" ]; then
+	echo "This script should only be run as user _backup"
+	exit 1
+fi
+HOME=~_backup
+
+tty=`tty 2>&1`
+if [ "$tty" = "not a tty" ]; then
+	tty=/dev/null
+else
+	tty=/dev/tty
+fi
+log() {
+}
+savedetails() {
+}
+bubble() {
+}
+logfile=/dev/null
+let globalstart=$(date +%s)+SECONDS
+
+verbose=0
+while [ "$1" ]
+do
+	case "$1" in
+	-v)
+		# verbose, in this case, output details to tty
+		let verbose=verbose+1
+		shift
+	;;
+	*)
+		break
+	;;
+	esac
+done
+
+ftparchive="$1"
+tmpdir="$2"
+dumpfile="$3"
+
+
+# ftparchive should be of the form
+#  ftp://user@host/subdir/
+# use .netrc to specify user, etc
+#
+if [ "$ftparchive" ]; then
+	# doubling up on ftp isn't going to hurt, right?
+	if ! [ "$(pgrep -u _backup ftp)" ] || true; then
+		let ftpstart=globalstart+SECONDS
+		log "FTP Archiving backups to $ftparchive"
+		(
+			echo pwd
+			echo bin
+			echo lcd $(dirname $dumpfile)
+			echo put $(basename $dumpfile)
+		) > $tmpdir/ftpcmds
+		ftp -v $ftparchive < $tmpdir/ftpcmds > $tmpdir/ftp.log 2>&1
+		for f in $tmpdir/ftp{cmds,.log}
+		do
+			{
+				echo "====> $(basename $f)"
+				cat $f
+			} | bubble >> $logfile
+		done
+		let ftpstop=globalstart+SECONDS
+		log "FTP Archive time $((ftpstop-ftpstart))s"
+		savedetails -0 -0 "FTP_Archive" $((ftpstop-ftpstart)) -
+	else
+		log "ftp already running, no ftp archive this round"
+	fi
+fi

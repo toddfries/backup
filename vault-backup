@@ -1233,6 +1233,55 @@ do
 						{print}'
 		}
 	;;
+	ifxdump*) # ifxdump://user@host/
+		method=ifxdump
+		host=$(echo "$f" | sed 's,ifxdump://.*@\([^/]*\)/.*$,\1,')
+		authuser=$(echo "$f" | sed 's,ifxdump://\(.*\)@.*/.*$,\1,')
+		parms=$(echo "$f" | sed 's,ifxdump://.*@[^/]*/\(.*\)$,\1,')
+		envargs=""
+		if [ "${parms}" ]; then
+			envargs="env"
+			nparms={parms%%/*}
+			for _a in $(echo ${parms#${nparms}/}|sed 's,/, ,g;s,%2f,/,g')
+			do
+				envargs="$envargs ${_a}"
+			done
+		fi
+		file="${host}-IFXDUMP"
+		f="$host:IFXDUMP"
+		sshhost=$(netcheckhost "$host")
+		backupmethod() {
+			local ifxlevel=$thisl
+			cmd=$(sshcmdline $authuser $host $sshhost)
+			cmd="$cmd $envargs /opt/IBM/informix/bin/ontape -s "
+			# ontape -L only accepts 0,1,2 so cap at 2 here
+			local maxifxlevel=2
+			if [ thisl -lt $((maxifslevel+1)) ]; then
+				ifxlevel=$thisl
+			else
+				ifxlevel=$maxifxlevel
+			fi
+			args="-L $ifxlevel -t STDIO"
+			if [ "$rmtaprog" != "none" ]; then
+				args="$args | $rmtaprog -v$rmtaopt"
+			fi
+			echo "$cmd $args" > /dev/stderr
+			{
+				nlcount=0
+				nlmax=1
+				if [ ifxlevel -eq 2 ]; then
+					nlmax=2
+				fi
+				while [ nlcount -lt nlmax ]
+				do
+					echo
+					let nlcount=nlcount+1
+				done
+			} | $cmd $args && echo "$successcookie" > /dev/stderr || echo "returned $?" > /dev/stderr
+		}
+		listmethod() {
+		}
+	;;
 	pgdump*) # pgdump://user@host:port/database[/-option/-option]
 		method=pgdump
 		host=$(echo "$f" | sed 's,pgdump://.*@\([^/]*\)/.*$,\1,')
@@ -1571,32 +1620,41 @@ fi
 # use .netrc to specify user, etc
 #
 if [ "$ftparchive" ]; then
-	if ! [ "$(pgrep -u _backup ftp)" ] || true; then
-		let ftpstart=globalstart+SECONDS
-		log "FTP Archiving backups to $ftparchive"
-		(
-			echo pwd
-			echo bin
-			while read dumpfile
-			do
-				echo lcd $(dirname $dumpfile)
-				echo put $(basename $dumpfile)
-			done < $tmpdir/dumpfiles
-		) > $tmpdir/ftpcmds
-		ftp -v $ftparchive < $tmpdir/ftpcmds > $tmpdir/ftp.log 2>&1
-		for f in $tmpdir/ftp{cmds,.log}
+	let ftpstart=globalstart+SECONDS
+	log "FTP Archiving backups to $ftparchive"
+	(
+		echo pwd
+		echo bin
+		while read dumpfile
 		do
-			{
-				echo "====> $(basename $f)"
-				cat $f
-			} | bubble >> $logfile
+			echo lcd $(dirname $dumpfile)
+			echo put $(basename $dumpfile)
+		done < $tmpdir/dumpfiles
+	) > $tmpdir/ftpcmds
+	ftp -v $ftparchive < $tmpdir/ftpcmds > $tmpdir/ftp.log 2>&1
+	for f in $tmpdir/ftp{cmds,.log}
+	do
+		{
+			echo "====> $(basename $f)"
+			cat $f
+		} | bubble >> $logfile
+	done
+	{
+		for dumpdir in $(while read dumpfile; do dirname $dumpfile; done < $tmpdir/dumpfiles | sort -u)
+		do
+			echo "      $dumpdir"
+			/usr/local/sbin/vault-ftpsync "$ftparchive" "$tmpdir" "$dumpdir"
 		done
-		let ftpstop=globalstart+SECONDS
-		log "FTP Archive time $((ftpstop-ftpstart))s"
-		savedetails -0 -0 "FTP_Archive" $((ftpstop-ftpstart)) -
-	else
-		log "ftp already running, no ftp archive this round"
+	} > $tmpdir/ftpsync.log 2>&1
+	if [ -s $tmpdir/ftpsync.log ]; then
+		{
+			echo "====> ftpsync"
+			cat $tmpdir/ftpsync.log
+		} | bubble >> $logfile
 	fi
+	let ftpstop=globalstart+SECONDS
+	log "FTP Archive time $((ftpstop-ftpstart))s"
+	savedetails -0 -0 "FTP_Archive" $((ftpstop-ftpstart)) -
 fi
 		
 let globalend=globalstart+SECONDS

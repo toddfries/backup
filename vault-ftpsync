@@ -1,0 +1,113 @@
+#!/bin/ksh
+
+# Copyright (c) 2001-2010 Todd T. Fries <todd@fries.net>
+#
+# Permission to use, copy, modify, and distribute this software for any
+# purpose with or without fee is hereby granted, provided that the above
+# copyright notice and this permission notice appear in all copies.
+#
+# THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+# WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+# MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+# ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+# WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+# ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+# OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+
+user=$(awk -v id=`id -u` -F: '$3 == id {print $1}' /etc/passwd)
+if [ "$user" != "_backup" ]; then
+	echo "This script should only be run as user _backup"
+	exit 1
+fi
+HOME=~_backup
+
+tty=`tty 2>&1`
+if [ "$tty" = "not a tty" ]; then
+	tty=/dev/null
+else
+	tty=/dev/tty
+fi
+log() {
+}
+savedetails() {
+}
+let globalstart=$(date +%s)+SECONDS
+
+verbose=0
+while [ "$1" ]
+do
+	case "$1" in
+	-v)
+		# verbose, in this case, output details to tty
+		let verbose=verbose+1
+		shift
+	;;
+	*)
+		break
+	;;
+	esac
+done
+
+ftparchive="$1"
+tmpdir="$2"
+dumpdir="$3"
+
+
+# ftparchive should be of the form
+#  ftp://user@host/subdir/
+# use .netrc to specify user, etc
+#
+if [ "$ftparchive" ]; then
+	let ftpstart=globalstart+SECONDS
+	log "FTP Archiving backups to $ftparchive"
+	(
+		echo pwd
+		echo bin
+		echo ls -l ${tmpdir}/ftplist.txt
+		echo y
+	) > $tmpdir/ftpcmds
+	ftp -v $ftparchive < $tmpdir/ftpcmds > $tmpdir/ftp.log 2>&1
+	cd $dumpdir
+	for dumpfile in $(perl -e '
+		open(LS,"ls -l|");
+		my @lsinfo = <LS>;
+		close(LS);
+		open(F,$ARGV[0]);
+		while(<F>) {
+			my @lsi = split(/ +/,$_);
+			my $size = $lsi[4];
+			my $name;
+			chomp($name = $lsi[8]);
+			
+			my $match = 1;
+			my @res = grep {/$name$/} @lsinfo;
+			if ($#res > -1) {
+				my @ftplsi = split(/ +/,$res[0]);
+				$ftpsize=$ftplsi[4];
+				chomp($ftpname=$ftplsi[8]);
+				if ($ftpname != $name) {
+					printf STDERR "scandal! ftpname{%s} != name{%s}\n",$ftpname,$name;
+					next;
+				}
+				if ($ftpsize != $size) {
+					#printf STDERR "name{%s} matches, size does not, queueing for xfer\n",$name;
+					
+					$match = 0;
+				}
+				#printf "name={%s}.ftpsize={%s}.ftpname={%s}.ftpline={%s}\n",$name,$ftplsi[4],$ftplsi[8],$res[0];
+			} else {
+				#printf STDERR "name{%s} does not exist, queueing for xfer\n",$name;
+				$match = 0;
+			}
+			if ($match == 0) {
+				printf "%s\n",$name;
+			}
+		}
+		close(F);' $tmpdir/ftplist.txt)
+	do
+		echo "$dumpfile"
+		#set -x
+		/usr/local/libexec/vault-ftpstorage "$1" "$2" "`pwd`/$dumpfile"
+		#exit 0
+	done
+fi
