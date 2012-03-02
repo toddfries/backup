@@ -322,12 +322,12 @@ savedetails() {
 }
 
 details=""
-logfile="$datadir/$setname.$(date +%Y%m%d%H%M%S).log"
+logfile="$datadir/$setname.$(date -r $globalstart +%Y%m%d%H%M%S).log"
 sumfile="${logfile%*.log}.summary"
 statfile="${logfile%*.log}.stats"
 create $logfile $sumfile ${statfile}.0
 {
-echo "Start Date: $(date +"%a, %e %b %Y %H:%M:%S %z (%Z)")"
+echo "Start Date: $(date -r $globalstart +"%a, %e %b %Y %H:%M:%S %z (%Z)")"
 echo
 [ globalconcurrence -gt 1 ] && {
 	echo "Max global concurrence   = $globalconcurrence"
@@ -354,14 +354,14 @@ log() {
 }
 
 _log "$(date -r $globalstart +"$datefmt")" "pid $$: backup of $bkd/$dumplistname list starting"
-log "globalstart=$globalstart"
+log "globalstart=$globalstart ($(date -r $globalstart))"
 log "logfile=$logfile"
 tailpid=0
 
-dayofweek=$(date +%w)
+dayofweek=$(date -r $globalstart +%w)
 l=${levels[$dayofweek]}
 
-m=$( date +%d )
+m=$( date -r $globalstart +%d )
 
 
 rotate() {
@@ -719,11 +719,6 @@ backupjob() {
 		savedetails -0 -0 "$f" $((stop-start)) $thisl "$why"
 	fi
 }
-#
-# read the seconds from the timestamp file
-# older timestamp files are zero bytes and the ctime of them is to be used
-# newer timestamp files contain ctime=12345 and thus can be copied around
-# without needing to preserve the ctime when xferring to other fs's
 file_seconds() {
 	if [ -s "$1" -a "$(grep "^ctime=" "$1")" ]; then
 		sed -n '/^ctime=/{s/^ctime=//;p;}' "$1"
@@ -1674,7 +1669,11 @@ setunit $totucsize
 tsize="$(printf "%.2f%-2s" "$sone" "$gunit")"
 _log "$(date -r $globalend +"$datefmt")" "pid $$: backup of $setname$dumplistsubj set completed"
 
-[ globalconcurrency -gt 1 ] && hostpos=10 || hostpos=9
+if [ globalconcurrency -gt 1 ]; then
+	hostpos=10
+else
+	hostpos=9
+fi
 
 create "${sumfile}.tmp" "${sumfile}.total"
 if [ globalconcurrency -lt 10 -a c -gt 9 ]; then
