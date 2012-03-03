@@ -637,7 +637,7 @@ backupjob() {
 			mv "$tmpfile" "$outfile" && \
 			mv "$tmpfile.timestamp" "$outfile.timestamp" && \
 			mv "$tmpfile.stderr" "$outfile.stderr" && \
-			create "$outfile.$filelist"
+			create "$outfile.filelist"
 			listmethod 2> /dev/null | if [ "$compprog" = "none" ]; then
 			    cat
 			else
