@@ -1249,8 +1249,9 @@ do
 			local ifxlevel=$thisl
 			cmd=$(sshcmdline $authuser $host $sshhost)
 			cmd="$cmd $envargs /opt/IBM/informix/bin/ontape -s "
-			# ontape -L only accepts 0,1,2 so cap at 2 here
-			local maxifxlevel=2
+			# ontape -L claims to accept 0,1,2 but experience
+			# shows only 0,1. so cap to 1.
+			local maxifxlevel=1
 			if [ thisl -lt $((maxifslevel+1)) ]; then
 				ifxlevel=$thisl
 			else
