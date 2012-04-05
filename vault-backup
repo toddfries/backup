@@ -815,7 +815,7 @@ do
 				break 2
 			fi
 			if ! [ "$(jobs ${globaljobs[$c]} 2> /dev/null)" ]; then
-				echo $(date) Slot $c finished ${globalhostof[$c]} > $tty
+				echo "$(date) Slot $c finished ${globalhostof[$c]}" > $tty
 				hostdec "${globalhostof[$c]}"
 				globaljobs[$c]=""
 				break 2
