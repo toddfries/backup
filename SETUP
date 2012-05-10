@@ -25,6 +25,27 @@ datadir=/backups
 #
 # remotemirror=mirror://user@remotehost/subdir
 #
+
+# Local Compression program
+#aprog=gzip
+#aopt=6
+#
+# Remote Compression program
+#rmtaprog=gzip
+#rmtaopt=6
+
+# Notification
+#notify=summary@example.com
+#notifdetail=detailsPlusSummary@example.com
+
+# Concurrence (how many parallel jobs to run)
+#globalconcurrence=2
+#hostconcurrence=2
+
+# Time constraints, don't start new jobs 
+#houraftertime=1
+#hourbeforetime=2
+
 EOF
 /usr/local/sbin/backup-addhost $setname localhost
 echo dump://localhost/ > dumplist
