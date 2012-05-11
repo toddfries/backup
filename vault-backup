@@ -815,7 +815,7 @@ do
 				break 2
 			fi
 			if ! [ "$(jobs ${globaljobs[$c]} 2> /dev/null)" ]; then
-				echo "$(date) Slot $c finished ${globalhostof[$c]}" > $tty
+				echo "$(date) Slot $c finished ${dumps[${globalhostjob[$c]}]}" > $tty
 				hostdec "${globalhostof[$c]}"
 				globaljobs[$c]=""
 				break 2
@@ -907,6 +907,7 @@ do
 
 	let dumpcount=dumpcount+1
 	globalhostof[$c]=${hostof[$dumpjob]}
+	globalhostjob[$c]=$dumpjob
 	hostinc "${globalhostof[$c]}"
 	started[$dumpjob]=1
 
@@ -1301,14 +1302,21 @@ do
 		file="PGDB-$file"
 		f="$host:$file"
 		pghost=$(netcheckhost "$host")
+			
 		backupmethod() {
+			local comp
+			if [ "$aprog" = "none" -a "$rmtaprog" ]; then
+				comp="|$rmtaprog -$rmtaopt"
+			else
+				comp=""
+			fi
 			export PGPASSFILE=$bkd/${host}_pgpass
 			echo "PGPASSFILE=$PGPASSFILE" > /dev/stderr
 			# -Fc --compress=0 # only after all db's are 8.3.x & up
 			# similar to tar
-			cmd="/usr/local/bin/pg_dump -h $pghost -p $pgport -U$authuser -s $args $db"
+			cmd="/usr/local/bin/pg_dump -h $pghost -p $pgport -U$authuser -s $args $db$comp"
 			echo "$cmd" > /dev/stderr
-			$cmd && echo "$successcookie" > /dev/stderr || echo "returned $?" > /dev/stderr
+			eval $cmd && echo "$successcookie" > /dev/stderr || echo "returned $?" > /dev/stderr
 		}
 		listmethod() {
 			# For lack of other ideas, show schema but no data
