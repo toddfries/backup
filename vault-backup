@@ -603,7 +603,7 @@ backupjob() {
 			backupmethod | $thisaprog -v$thisaopt
 		fi > "$tmpfile" 2> "$tmpfile.stderr"
 		if [ "$(tailifexists -3 "$tmpfile.stderr" | egrep "$successcookie$" 2> /dev/null)" ]; then
-			if [ "$(tailifexists -10 "$tmpfile.stderr" | egrep -i "Connection reset by peer|Connection timed out| denied|failed|Command not found|Killed |^ssh:.*:Operation timed out" 2> /dev/null)" ]; then
+			if [ "$(tailifexists -10 "$tmpfile.stderr" | egrep -i "Connection reset by peer|Connection timed out| denied|Terminated|failed|Command not found|Killed |^ssh:.*:Operation timed out" 2> /dev/null)" ]; then
 				fail=101
 			fi
 			if [ "$(tailifexists -2 "$tmpfile.stderr" | grep "session setup failed: NT_STATUS_PASSWORD_EXPIRED")" ]; then
@@ -1314,7 +1314,7 @@ do
 			echo "PGPASSFILE=$PGPASSFILE" > /dev/stderr
 			# -Fc --compress=0 # only after all db's are 8.3.x & up
 			# similar to tar
-			cmd="/usr/local/bin/pg_dump -h $pghost -p $pgport -U$authuser -s $args $db$comp"
+			cmd="/usr/local/bin/pg_dump -h $pghost -p $pgport -U$authuser $args $db$comp"
 			echo "$cmd" > /dev/stderr
 			eval $cmd && echo "$successcookie" > /dev/stderr || echo "returned $?" > /dev/stderr
 		}
