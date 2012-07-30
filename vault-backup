@@ -281,7 +281,7 @@ create() {
 }
 savedetails() {
 	local s="$1" ucs="$2" fs="$3" time="$4" level="$5" lwhy="$6"
-	local h m tmp comp ratio
+	local h m tmp comp ratio details=" "
 	if [ "$s" -eq "0" -o "$ucs" -eq "0" ]; then
 		comp=0
 		ratio=0
@@ -307,18 +307,21 @@ savedetails() {
 		else
 			dfmt="%d"
 		fi
-		details=$(printf "$dfmt" $c)
+		if ((c == 0)); then
+			details=$(printf "$dfmt" 0)
+		else
+			details=$(printf "$dfmt" $c)
+		fi
 	fi
 	details="$details$(printf "$fmt" $ucsize "$ucunit" $uctime "$ucunit") "
 	details="$details$(printf "$fmt" $size $unit $ctime $unit) "
-	details="$details$(printf "%6.2f %6.2f " $comp $ratio)"
+	details="$details$(printf "%7.2f " $comp)"
 	details="$details$(printf "%s %2s" "$(sectohms $time)" $level) $fs"
 	if [ "$lwhy" ]; then
 		details="$details (Failed $lwhy, $retrycount tries)"
 	fi
 	create $sumfile.$c
 	echo "$details" >> ${sumfile}.$c
-	details=""
 }
 
 details=""
@@ -336,11 +339,11 @@ echo
 	[ globalconcurrence -gt 9 ] && echo -n " "
 	echo -n "P"
 }
-echo "  Uncompressed        Compressed       Percent         Time  Level FileSystem"
+echo "  Uncompressed        Compressed      Percent    Time  Level FileSystem"
 [ globalconcurrence -gt 9 ] && echo -n " "
 [ globalconcurrence -gt 1 ] && echo -n "#"
-echo "     data  speed/s      data  speed/s      %      %  HH:MM:SS    hostname:/subdir"
-#cho "  43.49KB   1.01KB    7.21KB   0.16KB  16.58  83.42 200:00:43 10 (Total)"
+echo "     data  speed/s      data  speed/s       %  HH:MM:SS    hostname:/subdir"
+#cho "  43.49KB   1.01KB    7.21KB   0.16KB -133.33 200:00:43 10 (Total)"
 } > "${sumfile}"
 _log() {
 	printf "%s %s\n" "$1" "$2" >> $logfile
@@ -815,7 +818,7 @@ do
 				break 2
 			fi
 			if ! [ "$(jobs ${globaljobs[$c]} 2> /dev/null)" ]; then
-				echo "$(date) Slot $c finished ${dumps[${globalhostjob[$c]}]}" > $tty
+				echo "$(date) Slot $c finished l$thisl ${dumps[${globalhostjob[$c]}]}" > $tty
 				hostdec "${globalhostof[$c]}"
 				globaljobs[$c]=""
 				break 2
@@ -884,8 +887,6 @@ do
 		sleep $loopdelay
 		continue
 	fi
-
-	echo "$(date) Slot $c starting ${dumps[$dumpjob]}" > $tty
 
 	thisl=$l
 	let start=globalstart+SECONDS
@@ -1465,6 +1466,8 @@ do
 		# Do level `0' if it does not already exist
 		thisl=0
 	fi
+
+	echo "$(date) Slot $c starting l$thisl ${dumps[$dumpjob]}" > $tty
 
 	high=-1
 	tmp=-1
