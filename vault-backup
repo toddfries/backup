@@ -21,6 +21,8 @@ if [ "$user" != "_backup" ]; then
 fi
 HOME=~_backup
 
+PATH=$PATH:/usr/local/bin:/usr/local/sbin
+
 rsynconly=0
 verbose=0
 tty=`tty 2>&1`
