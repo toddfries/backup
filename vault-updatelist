@@ -66,19 +66,19 @@ if [ "$1" = "-s" ]; then
 	shift
 	parsepattern() {
 		local scmd=$(sshcmdline "$sshuser" "$sshhost" "$sshhost")
-		$scmd echo "$pattern"
+		$scmd for f in "$pattern" ";" do echo "\"\$f\"" ";" done
 	}
 
 else
 	parsepattern() {
-		echo $pattern
+		for f in $pattern; do echo "$f"; done
 	}
 fi
 dumplist="$1"
 pattern="$2"
 pathpre="$3"
 bkd=/etc/backup/"$dumplist"
-for path in $(parsepattern | sed 's/ /%20/g')
+parsepattern | while read path
 do
 	echo "$pathpre$path"
-done
+done | sed 's/ /%20/g'
