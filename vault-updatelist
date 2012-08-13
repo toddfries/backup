@@ -78,7 +78,7 @@ dumplist="$1"
 pattern="$2"
 pathpre="$3"
 bkd=/etc/backup/"$dumplist"
-for path in $(parsepattern)
+for path in $(parsepattern | sed 's/ /%20/g')
 do
 	echo "$pathpre$path"
 done
