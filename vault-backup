@@ -342,8 +342,8 @@ echo
 echo "  Uncompressed        Compressed      Percent    Time  Level FileSystem"
 [ globalconcurrence -gt 9 ] && echo -n " "
 [ globalconcurrence -gt 1 ] && echo -n "#"
-echo "     data  speed/s      data  speed/s       %  HH:MM:SS    hostname:/subdir"
-#cho "  43.49KB   1.01KB    7.21KB   0.16KB -133.33 200:00:43 10 (Total)"
+echo "     data  speed/s      data  speed/s        %  HH:MM:SS    hostname:/subdir"
+#cho "  43.49KB   1.01KB    7.21KB   0.16KB  -133.33 200:00:43 10 (Total)"
 } > "${sumfile}"
 _log() {
 	printf "%s %s\n" "$1" "$2" >> $logfile
