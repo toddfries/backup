@@ -81,4 +81,4 @@ bkd=/etc/backup/"$dumplist"
 parsepattern | while read path
 do
 	echo "$pathpre$path"
-done | sed 's/ /%20/g'
+done | sed 's/ /%SPACE%/g'
