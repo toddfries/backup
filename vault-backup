@@ -1285,6 +1285,63 @@ do
 		listmethod() {
 		}
 	;;
+	sshpgdump*) # sshpgdump://user@host:port/database[/-option/-option]
+		method=sshpgdump
+		host=$(echo "$f" | sed 's,sshpgdump://.*@\([^/]*\)/.*$,\1,')
+		pgport="5432"
+		pgargs=""
+		if [ "${host}" != "${host#*:}" ]; then
+			pgport=$(echo "$host" | sed 's/^.*:\(.*\)$/\1/')
+			host=$(echo "$host" | sed 's/^\(.*\):.*$/\1/')
+		fi
+		authuser=$(echo "$f" | sed 's,sshpgdump://\(.*\)@.*$,\1,')
+		file=$(echo "$f" | sed 's,sshpgdump://.*@[^/]*/\(.*\)$,\1,')
+		if [ "${file}" != "${file#*/}" ]; then
+			newfile=${file%%/*}
+			for _a in $(echo ${file#${newfile}/}|sed 's,/, ,g')
+			do
+				args="$args ${_a}"
+			done
+			file="$newfile"
+		fi
+		db=$file
+		file="PGDB-$file"
+		f="$host:$file"
+		pghost=$(netcheckhost "$host")
+			
+		backupmethod() {
+			local comp
+			if [ "$aprog" = "none" -a "$rmtaprog" ]; then
+				comp="|$rmtaprog -$rmtaopt"
+			else
+				comp=""
+			fi
+			export PGPASSFILE=$bkd/${host}_pgpass
+			echo "PGPASSFILE=$PGPASSFILE" > /dev/stderr
+			# -Fc --compress=0 # only after all db's are 8.3.x & up
+			# similar to tar
+			scmd=$(sshcmdline $authuser $host $pghost)
+			echo "$scmd 'touch .pgpass;chmod 600 .pgpass; dd of=.pgpass'" > /dev/stderr
+			cat $PGPASSFILE | $scmd 'touch .pgpass;chmod 600 .pgpass; dd of=.pgpass'
+			cmd="$scmd /usr/local/bin/pg_dump -h ::1 -p $pgport -Upostgres $args $db$comp"
+			echo "$cmd" > /dev/stderr
+			eval $cmd && echo "$successcookie" > /dev/stderr || echo "returned $?" > /dev/stderr
+		}
+		listmethod() {
+			# For lack of other ideas, show schema but no data
+			$decomp -d < "$outfile" |
+				awk '
+				/^--/		{next}
+				/^$/		{next}
+				/^CREATE TABLE/	{createtable=1}
+				/^\);$/		{createtable=0;print;next}
+				/^COPY/		{copy=1}
+				/^\\\./         {copy=0}
+				/^[A-Z]/	{if (!copy) {print}; next}
+						{if (createtable) {print}}
+			'
+		}
+	;;
 	pgdump*) # pgdump://user@host:port/database[/-option/-option]
 		method=pgdump
 		host=$(echo "$f" | sed 's,pgdump://.*@\([^/]*\)/.*$,\1,')
