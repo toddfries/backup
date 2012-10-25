@@ -1,3 +1,4 @@
+- check that _backup is in group operator so use errors to detect during vault-addhost
 - split out vault-ftpstorage so it can be used to retrieve files from ftp storage,
   as well as sync local archives to ftp storage in the likely event some ftp's fail
   at one point or another
