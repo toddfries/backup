@@ -74,12 +74,17 @@ if ! [ -d "$datadir/$(hostname)" ]; then
 fi
 cd $datadir/$(hostname)
 subdir="$2"
-if ! [ "$subdir" -a -e "$subdir" ]; then
+if ! [ "$subdir" -a -d "$subdir" ]; then
 	usage 4
+fi
+if [ "$(df -P $subdir)" = "$(df -P $subdir/..)" ]; then
+	finddir="${subdir}/.."
+else
+	finddir="${subdir}"
 fi
 fpat=$(echo "$subdir" | sed 's,//,,;s,[/:],_,g')
 
-td=$(mktemp -d /tmp/.vault-restore.XXXXXXXXXXXXXXXXXXXX)
+td=$(mktemp -d $subdir/vault-restore.XXXXXXXXXXXXXXXXXXXX)
 
 if ((verbose > 0)); then
 	set -x
@@ -103,7 +108,7 @@ do
 		fi
 		((ign++))
 	done
-	[ -e "$subdir/$f" ] || echo "$f"
+	[ -e "$finddir/$f" ] || echo "$f"
 done > $td/restlist
 EDITOR=${EDITOR:-vi}
 $EDITOR $td/restlist
