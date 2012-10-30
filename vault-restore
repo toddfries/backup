@@ -122,18 +122,23 @@ do
 	done
 done
 restfiles() {
-	egrep "^[^ ] $1$" $td/rfilelist | awk '{print $1}'
+	egrep "^[^ ]+ $1$" $td/rfilelist | awk '{print $1}' | sort -u
 }
 for f in $(sort -u $td/rfilelist | awk '{$1="";print}')
 do
 	echo "$(/bin/ls -1t $(restfiles "$f") | head -1) ./$f"
 done > $td/restorelist
 mkdir $td/restdir
+echo "Restored files will be in $td/restdir"
 for file in $(awk '{sub("\.filelist$","",$1); print $1}' < $td/restorelist | sort -u)
 do
 	arglist="$(grep "^$file" < $td/restorelist | \
 	    awk '{$1 = ""; print $0}')"
 	if [ "$arglist" ]; then
-		decomp "$file" | restore -C $td/restdir -xvf - $arglist
+		echo "Extracting from $file"
+		decomp "$file" | (
+			cd $td/restdir
+			time restore -xvyf - $arglist
+		)
 	fi
 done
