@@ -77,11 +77,7 @@ subdir="$2"
 if ! [ "$subdir" -a -d "$subdir" ]; then
 	usage 4
 fi
-if [ "$(df -P $subdir)" = "$(df -P $subdir/..)" ]; then
-	finddir="${subdir}/.."
-else
-	finddir="${subdir}"
-fi
+finddir=$(df -P $subdir | awk '/^Filesystem/{next}{print $6}')
 fpat=$(echo "$subdir" | sed 's,//,,;s,[/:],_,g')
 
 td=$(mktemp -d $subdir/vault-restore.XXXXXXXXXXXXXXXXXXXX)
@@ -113,17 +109,14 @@ done > $td/restlist
 EDITOR=${EDITOR:-vi}
 $EDITOR $td/restlist
 [ -s $td/restlist ] || exit 1
-set -A restfiles $(<$td/restlist)
 for f in ${files[*]}
 do
-	decomp "$f" | while read l
+	decomp "$f" | while read ino name
 	do
-		for rfile in ${restfiles[*]}
-		do
-			if [[ $l == *$rfile ]]; then
-				echo "$f $rfile">>$td/rfilelist
-			fi
-		done
+		rfile=$(egrep "^${name#./}" $td/restlist)
+		if [ "$rfile" ]; then
+			echo "$f $rfile" >> $td/rfilelist
+		fi
 	done
 done
 restfiles() {
