@@ -131,7 +131,12 @@ echo "Restored files will be in $td/restdir"
 for file in $(awk '{sub("\.filelist$","",$1); print $1}' < $td/restorelist | sort -u)
 do
 	arglist="$(grep "^$file" < $td/restorelist | \
-	    awk '{$1 = ""; print $0}')"
+	    awk '{
+			$1 = "";
+			sub("^[ ]*","",$0);
+			sub("[ ]*$","",$0);
+			print "\"" $0 "\"";
+		}')"
 	if [ "$arglist" ]; then
 		echo "Extracting from $file"
 		decomp "$file" | (
