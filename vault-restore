@@ -135,7 +135,8 @@ do
 			$1 = "";
 			sub("^[ ]*","",$0);
 			sub("[ ]*$","",$0);
-			print "\"" $0 "\"";
+			gsub(" ","\\ ",$0);
+			print $0;
 		}')"
 	if [ "$arglist" ]; then
 		echo "Extracting from $file"
