@@ -63,7 +63,7 @@ fi
 bkd="/etc/backup/$setname"
 if ! [ -d "$bkd" ]; then
 	echo "$bkd directory does not exist!"
-	exit 2
+	usage 2
 fi
 if [ -f "$bkd/conf" ]; then
 	. $bkd/conf
@@ -82,11 +82,22 @@ fpat=$(echo "$subdir" | sed 's,//,,;s,[/:],_,g')
 
 td=$(mktemp -d $subdir/vault-restore.XXXXXXXXXXXXXXXXXXXX)
 
+shift;shift
+# $3 and up = files to restore, single shot
+if [ "$1" ]; then
+	while [ "$1" ]
+	do
+		echo "$1"
+		shift
+	done > $td/restlist
+fi
+
 if ((verbose > 0)); then
 	set -x
 fi
 
 set -A files *_${fpat}.?.filelist
+if ! [ -e "$td/restlist" ]; then
 for f in ${files[*]}
 do
 	[ -e "$f" ] || continue
@@ -108,7 +119,8 @@ do
 done > $td/restlist
 EDITOR=${EDITOR:-vi}
 $EDITOR $td/restlist
-[ -s $td/restlist ] || exit 1
+fi
+[ -s $td/restlist ] || exit 4
 for f in ${files[*]}
 do
 	decomp "$f" | while read ino name
@@ -122,6 +134,9 @@ done
 restfiles() {
 	egrep "^[^ ]+ $1$" $td/rfilelist | awk '{print $1}' | sort -u
 }
+if ! [ -e $td/rfilelist ]; then
+	exit 5
+fi
 for f in $(sort -u $td/rfilelist | awk '{$1="";print}')
 do
 	echo "$(/bin/ls -1t $(restfiles "$f") | head -1) ./$f"
