@@ -244,8 +244,10 @@ while(<RL>) {
 }
 close(RL);
 }
-for my $f (@restlist) {
-	printf STDERR "\@restlist member %s\n",$f;
+if ($verbose > 0) {
+	for my $f (@restlist) {
+		printf STDERR "\@restlist member %s\n",$f;
+	}
 }
 my @rfilelist;
 my %rfileuniq;
@@ -266,12 +268,14 @@ my %restarchivefiles;
 for my $f (sort keys %rfileuniq) {
 	printf STDERR "Looking up %s\n",$f;
 	my $searchf = $f;
-	$searchf =~ s,/,\/,g;
-	$searchf = "zipinfo";
-	my @tmplist = grep {/^[^ ]+ $searchf$/} @restlist;
+	#$searchf =~ s,/,\/,g;
+	my @tmplist = grep {/^[^ ]+ $searchf$/} @rfilelist;
+	printf STDERR "\$#rfilelist = %d, \$#tmplist = %d\n", $#rfilelist, $#tmplist;
 	my %tmpuniq;
 	for my $tf (@tmplist) {
-		printf STDERR "\@tmplist item %s about to split\n",$tf;
+		if ($verbose > 1) {
+			printf STDERR "\@tmplist item %s about to split\n",$tf;
+		}
 		my ($lhs,$rhs) = split(/[ ]+/,$tf,2);
 		$tmpuniq{$lhs}=1;
 	}
@@ -304,7 +308,9 @@ for my $file (sort keys %restarchivefiles) {
 		if (length($ftinfo) < 1) {
 			next;
 		}
-		my $cmd = "$ftinfo -d < \"$file\" | {cd $td/restdir && time restore -xvyf - $arglist;}";
+		my $cmd = sprintf "%s -d < \"%s\" | ".
+		    "(cd %s/restdir && time restore -x%syf - %s)",
+		    $ftinfo,$file,$td,($verbose > 0) ? "v" : "", $arglist;
 		printf STDERR "cmd: %s\n", $cmd;
 		system($cmd);
 	}
