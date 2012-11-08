@@ -266,11 +266,15 @@ if ($#rfilelist < 0) {
 my %restorelist;
 my %restarchivefiles;
 for my $f (sort keys %rfileuniq) {
-	printf STDERR "Looking up %s\n",$f;
+	if ($verbose > 0) {
+		printf STDERR "Looking up %s\n",$f;
+	}
 	my $searchf = $f;
 	#$searchf =~ s,/,\/,g;
 	my @tmplist = grep {/^[^ ]+ $searchf$/} @rfilelist;
-	printf STDERR "\$#rfilelist = %d, \$#tmplist = %d\n", $#rfilelist, $#tmplist;
+	if ($verbose > 0) {
+		printf STDERR "\$#rfilelist = %d, \$#tmplist = %d\n", $#rfilelist, $#tmplist;
+	}
 	my %tmpuniq;
 	for my $tf (@tmplist) {
 		if ($verbose > 1) {
@@ -311,7 +315,9 @@ for my $file (sort keys %restarchivefiles) {
 		my $cmd = sprintf "%s -d < \"%s\" | ".
 		    "(cd %s/restdir && time restore -x%syf - %s)",
 		    $ftinfo,$file,$td,($verbose > 0) ? "v" : "", $arglist;
-		printf STDERR "cmd: %s\n", $cmd;
+		if ($verbose > 0) {
+			printf STDERR "cmd: %s\n", $cmd;
+		}
 		system($cmd);
 	}
 }
