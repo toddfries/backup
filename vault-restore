@@ -1,4 +1,4 @@
-#!/bin/ksh
+#!/usr/bin/perl
 
 # Copyright (c) 2012 Todd T. Fries <todd@fries.net>
 #
@@ -14,150 +14,259 @@
 # ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 # OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 
+use strict;
+use warnings;
+
+use File::Temp qw(tempdir);
+use Cwd;
+
+my $line;
+
 # for now, local restores until experience is built up
 
-filetype() {
-	local f="$1"
-	if [ "$(dd bs=3 count=1 if="$f" 2> /dev/null | hexdump -C| \
-		grep -v "00000000  5d 00 00")" ]; then
-		echo lzma
-		return
-	fi
-	fileinfo=$(file "$f" 2> /dev/null)
-	case "$fileinfo" in
-	*"gzip compressed data"*) echo gzip;;
-	esac
+sub filetype {
+	my ($f) = @_;
+	my $info = `dd bs=3 count=1 if="$f" 2> /dev/null | hexdump -C| \
+		grep -v "00000000  5d 00 00"`;
+	chomp($info);
+	if (length($info) > 0) {
+		return "lzma";
+	}
+	$info=`file "$f" 2> /dev/null`;
+	chomp($info);
+	if ($info =~ m/gzip compressed data/) {
+		return "gzip";
+	}
+	return "";
 }
 
-decomp() {
-	local f="$1"
-	ftinfo="$(filetype "$f")"
-	case "$ftinfo" in
-	lzma) lzma -d < "$f";;
-	gzip) gzip -d < "$f";;
-	*) echo "Unknown filetype of $f: $ftinfo";;
-	esac
+sub decomp {
+	my ($f)=@_;
+	my $ftinfo=filetype "$f";
+	my @files;
+	my $cmd;
+	if ($ftinfo eq "lzma") {
+		$cmd = "lzma -d";
+	}
+	if ($ftinfo eq "gzip") {
+		$cmd = "gzip -d";
+	}
+	if (!defined($cmd)) {
+		printf STDERR "pwd = %s\n",&Cwd::cwd();
+		printf STDERR "Unknown filetype of %s: %s\n",$f,$ftinfo;
+		return;
+	}
+	open(LIST,"$cmd < $f |");
+	while(<LIST>) {
+		chomp($line = $_);
+		if ($line =~ /^(Verify tape|Dump   date|Dumped from|Extract directories|Initialize symbol table)/) {
+			next;
+		}
+		my ($lhs,$rhs) = split(/[ ]+/,$line,2);
+		$rhs =~ s/^\.\///;
+		push @files, $rhs;
+	}
+	close(LIST);
+	return sort @files;
 }
 
-verbose=0
-while [ "$1" ]
-do
-	case "$1" in
-	-v) ((verbose++));;
-	-i) ignores[${#ignores[*]}]="$2"; shift;;
-	*) break;;
-	esac
-	shift
-done
-usage() {
-	echo "Usage: $0 backupsetname backupdir"
-	exit $1
+my $verbose=0;
+my $i = 0;
+my @ignores;
+
+while (defined($ARGV[$i])) {
+	if ($ARGV[$i] =~ /^-v$/) {
+		$verbose++;
+		$i++;
+		next;
+	}
+	if ($ARGV[$i] =~ /^-i$/) {
+		push @ignores,$ARGV[$i+1];
+		$i+=2;
+		next;
+	}
+	last;
+}
+sub usage {
+	my ($exitval) = @_;
+	print "Usage: $0 backupsetname backupdir";
+	exit $exitval;
 }
 
-setname="$1"
-if ! [ "$setname" ]; then
-	usage 1
-fi
+my $setname=$ARGV[0];
+if ( ! defined($setname)) {
+	usage 1;
+}
 
 # backup directory
-bkd="/etc/backup/$setname"
-if ! [ -d "$bkd" ]; then
-	echo "$bkd directory does not exist!"
-	usage 2
-fi
-if [ -f "$bkd/conf" ]; then
-	. $bkd/conf
-fi
-if ! [ -d "$datadir/$(hostname)" ]; then
-	echo "$datadir/$(hostname) in $bkd/conf does not exist!"
-	exit 3
-fi
-cd $datadir/$(hostname)
-subdir="$2"
-if ! [ "$subdir" -a -d "$subdir" ]; then
-	usage 4
-fi
-finddir=$(df -P $subdir | awk '/^Filesystem/{next}{print $6}')
-fpat=$(echo "$subdir" | sed 's,//,,;s,[/:],_,g')
-
-td=$(mktemp -d $subdir/vault-restore.XXXXXXXXXXXXXXXXXXXX)
-
-shift;shift
-# $3 and up = files to restore, single shot
-if [ "$1" ]; then
-	while [ "$1" ]
-	do
-		echo "$1"
-		shift
-	done > $td/restlist
-fi
-
-if ((verbose > 0)); then
-	set -x
-fi
-
-set -A files *_${fpat}.?.filelist
-if ! [ -e "$td/restlist" ]; then
-for f in ${files[*]}
-do
-	[ -e "$f" ] || continue
-	echo "Processing $f" > /dev/tty
-	decomp "$f"
-done | awk '/^(Verify tape|Dump   date|Dumped from|Extract directories|Initialize symbol table)/{next} {sub("^\./","",$2);$1 = ""; print}' | \
-sort -u | \
-while read f
-do
-	ign=0
-	while [ ign -lt ${#ignores[*]} ]
-	do
-		if [[ $f == *${ignores[$ign]}* ]]; then
-			continue 2
-		fi
-		((ign++))
-	done
-	[ -e "$finddir/$f" ] || echo "$f"
-done > $td/restlist
-EDITOR=${EDITOR:-vi}
-$EDITOR $td/restlist
-fi
-[ -s $td/restlist ] || exit 4
-for f in ${files[*]}
-do
-	decomp "$f" | while read ino name
-	do
-		rfile=$(egrep "^${name#./}" $td/restlist)
-		if [ "$rfile" ]; then
-			echo "$f $rfile" >> $td/rfilelist
-		fi
-	done
-done
-restfiles() {
-	egrep "^[^ ]+ $1$" $td/rfilelist | awk '{print $1}' | sort -u
+my $bkd="/etc/backup/$setname";
+if (! -d "$bkd" ) {
+	printf "%s directory does not exist!\n",$bkd;
+	usage 2;
 }
-if ! [ -e $td/rfilelist ]; then
-	exit 5
-fi
-for f in $(sort -u $td/rfilelist | awk '{$1="";print}')
-do
-	echo "$(/bin/ls -1t $(restfiles "$f") | head -1) ./$f"
-done > $td/restorelist
-mkdir $td/restdir
-echo "Restored files will be in $td/restdir"
-for file in $(awk '{sub("\.filelist$","",$1); print $1}' < $td/restorelist | sort -u)
-do
-	arglist="$(grep "^$file" < $td/restorelist | \
-	    awk '{
-			$1 = "";
-			sub("^[ ]*","",$0);
-			sub("[ ]*$","",$0);
-			gsub(" ","\\ ",$0);
-			print $0;
-		}')"
-	if [ "$arglist" ]; then
-		echo "Extracting from $file"
-		decomp "$file" | (
-			cd $td/restdir
-			time restore -xvyf - $arglist
-		)
-	fi
-done
+my %conf;
+if ( -f "$bkd/conf" ) {
+	open(CONF,"$bkd/conf");
+	while(<CONF>) {
+		if (/^#/) {
+			next;
+		}
+		if (/^[ \t]*$/) {
+			next;
+		}
+		if (!/=/) {
+			next;
+		}
+		chomp($line=$_);
+		my ($var, $val) = split(/=/,$line,2);
+		if (!defined($val)) {
+			next;
+		}
+		$conf{$var} = $val;
+	}
+	close(CONF);
+}
+my $datadir = $conf{'datadir'};
+if (!defined($datadir)) {
+	printf "No datadir specified in %s\n", "$bkd/conf";
+	exit(1);
+}
+my $hostname;
+chomp($hostname = `hostname`);
+if ( ! -d "$datadir/$hostname" ) {
+	printf "%s/%s in %s/conf does not exist!\n",$datadir,$hostname,$bkd;
+	exit(3);
+}
+my $hostdir="$datadir/$hostname";
+chdir($hostdir) || die "Could not cd to \"$hostdir\"";
+my $subdir=$ARGV[1];
+if (!defined($subdir)) {
+	usage 4;
+}
+if ( ! -d "$subdir" ) {
+	usage 4;
+}
+my $finddir;
+open(DF,"df -P $subdir|");
+while(<DF>) {
+	if (/^Filesystem/) {
+		next;
+	}
+	chomp($line = $_);
+	my (@info) = split(/[ \t]+/,$line);
+	$finddir = $info[5];
+}
+printf "Mount point of %s is %s\n",$subdir,$finddir;
+my $fpat = $subdir;
+$fpat =~ s,//,,;
+$fpat =~ s,[/:],_,g;
+my $td = tempdir ( "vault-restore.XXXXXXXXXXXXXXXXXXXX", DIR => $subdir );
+
+shift @ARGV;
+shift @ARGV;
+
+# any more arguments, files to process in a single non interactive shot
+my @restlist;
+if ( defined($ARGV[0]) ) {
+	@restlist = @ARGV;
+}
+open(TTY,">>/dev/tty");
+
+my @files;
+chomp(@files = `ls -1 *_${fpat}.?.filelist`);
+my @filelist;
+if ($#restlist < 0) {
+for my $f (@files) {
+	if ( ! -e $f ) {
+		next;
+	}
+	printf TTY "Processing %s\n",$f;
+	push @filelist, decomp $f;
+}
+# do the unique sort of @filelist
+my @restlist;
+open(RL,">$td/restlist");
+for my $f (@filelist) {
+	my $ign=0;
+	my $ignoreit=0;
+	while ($ign < $#ignores ) {
+		if ( $f =~ /$ignores[$ign]/ ) {
+			$ignoreit = 1;
+			last;
+		}
+		$ign++;
+	}
+	if ($ignoreit > 0) {
+		next;
+	}
+	if ( ! -e "$finddir/$f" ) {
+		printf RL "%s\n",$f;
+	}
+}
+close(RL);
+
+if (!defined($ENV{'EDITOR'})) {
+	$ENV{'EDITOR'} = "vi";
+}
+
+system("$ENV{'EDITOR'} $td/restlist");
+if ( -z "$td/restlist" ) {
+	exit 4;
+}
+open(RL,"$td/restlist");
+while(<RL>) {
+	chomp($line = $_);
+	push @restlist,$_;
+}
+close(RL);
+}
+my @rfilelist;
+my %rfileuniq;
+for my $f (@files) {
+	for my $name (decomp "$f") {
+		$name =~ s/^\.\///;
+		if (my ($rfile) = grep {/^${name}/} @restlist) {
+			push @rfilelist,"$f $rfile";
+			$rfileuniq{$f}=1;
+		}
+	}
+}
+if ($#rfilelist < 0) {
+	exit 5;
+}
+my %restorelist;
+my %restarchivefiles;
+for my $f (sort keys %rfileuniq) {
+	my @tmplist = grep {/^[^ ]+ $f$/} @restlist;
+	my %tmpuniq;
+	for my $tf (@tmplist) {
+		my ($lhs,$rhs) = split(/[ ]+/,$tf,2);
+		$tmpuniq{$lhs}=1;
+	}
+	my $restfiles = "";
+	for my $tf (keys %tmpuniq) {
+		$restfiles .= " ".$tf;
+	}
+	my $restfile;
+	chomp($restfile = `/bin/ls -1t $restfiles|head -1`);
+	$restfile =~ s/\.filelist$//;
+	$restorelist{$f} = $restfile;
+	$restarchivefiles{$restfile}=1;
+}
+mkdir("$td/restdir");
+printf STDERR "Restored files will be in %s/restdir\n",$td;
+for my $file (sort keys %restarchivefiles) {
+	my $arglist = "";
+	for my $a (sort keys %restorelist) {
+		if ($restorelist{$a} eq "$file") {
+			$arglist .= " \"${a}\"";
+		}
+	}
+	if (length($arglist) > 0) {
+		printf STDERR "Extracting from %s\n", $file;
+		my $ftinfo=filetype "$file";
+		my $cmd = "$ftinfo -d < \"$file\" | {cd $td/restdir && time restore -xvyf - $arglist;}";
+		printf STDERR "cmd: %s\n", $cmd;
+		system($cmd);
+	}
+}
