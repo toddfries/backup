@@ -21,6 +21,10 @@ use File::Temp qw(tempdir);
 use Cwd;
 
 my $line;
+my $verbose=0;
+my $i = 0;
+my @ignores;
+
 
 # for now, local restores until experience is built up
 
@@ -56,40 +60,53 @@ sub decomp {
 		printf STDERR "Unknown filetype of %s: %s\n",$f,$ftinfo;
 		return;
 	}
+	if ($verbose > 0) {
+		printf STDERR "About to: %s -d < %s\n",$ftinfo,$f;
+	}
 	open(LIST,"$cmd < $f |");
 	while(<LIST>) {
 		chomp($line = $_);
 		if ($line =~ /^(Verify tape|Dump   date|Dumped from|Extract directories|Initialize symbol table)/) {
 			next;
 		}
-		my ($lhs,$rhs) = split(/[ ]+/,$line,2);
+		if ($verbose > 1) {
+			printf STDERR "About to split line: %s\n",$line;
+		}
+		my ($blank,$lhs,$rhs) = split(/[ ]+/,$line,3);
 		$rhs =~ s/^\.\///;
 		push @files, $rhs;
 	}
 	close(LIST);
+	if ($verbose > 0) {
+		printf STDERR "Done: %s -d < %s\n",$ftinfo,$f;
+	}
 	return sort @files;
 }
 
-my $verbose=0;
-my $i = 0;
-my @ignores;
-
-while (defined($ARGV[$i])) {
-	if ($ARGV[$i] =~ /^-v$/) {
+while (defined($ARGV[0])) {
+	if ($verbose > 0) {
+		printf STDERR "ARGV[0] = %s\n",$ARGV[0];
+		printf STDERR "ARGV[1] = %s\n",$ARGV[1];
+	}
+	if ($ARGV[0] =~ /^-v$/) {
 		$verbose++;
-		$i++;
+		shift @ARGV;
 		next;
 	}
-	if ($ARGV[$i] =~ /^-i$/) {
-		push @ignores,$ARGV[$i+1];
-		$i+=2;
+	if ($ARGV[0] =~ /^-i$/) {
+		if ($verbose > 0) {
+			printf STDERR "push \@ignores,$ARGV[1]\n";
+		}
+		push @ignores,$ARGV[1];
+		shift @ARGV;
+		shift @ARGV;
 		next;
 	}
 	last;
 }
 sub usage {
 	my ($exitval) = @_;
-	print "Usage: $0 backupsetname backupdir";
+	print "Usage: $0 backupsetname backupdir\n";
 	exit $exitval;
 }
 
@@ -174,23 +191,27 @@ open(TTY,">>/dev/tty");
 
 my @files;
 chomp(@files = `ls -1 *_${fpat}.?.filelist`);
-my @filelist;
+my %filelist;
 if ($#restlist < 0) {
 for my $f (@files) {
 	if ( ! -e $f ) {
 		next;
 	}
 	printf TTY "Processing %s\n",$f;
-	push @filelist, decomp $f;
+	for my $fl (decomp $f) {
+		$filelist{$fl} = 1;
+	}
 }
-# do the unique sort of @filelist
-my @restlist;
 open(RL,">$td/restlist");
-for my $f (@filelist) {
-	my $ign=0;
+for my $f (sort keys %filelist) {
+	my $ign=-1;
 	my $ignoreit=0;
 	while ($ign < $#ignores ) {
-		if ( $f =~ /$ignores[$ign]/ ) {
+		my $ignore = $ignores[$ign];
+		if ($verbose > 2) {
+			printf STDERR "Comparing %s and %s\n",$f,$ignore;
+		}
+		if ( $f =~ /$ignore/ ) {
 			$ignoreit = 1;
 			last;
 		}
@@ -198,6 +219,9 @@ for my $f (@filelist) {
 	}
 	if ($ignoreit > 0) {
 		next;
+	}
+	if ($verbose > 1) {
+		printf STDERR "Checking on file %s\n",$f;
 	}
 	if ( ! -e "$finddir/$f" ) {
 		printf RL "%s\n",$f;
@@ -216,9 +240,12 @@ if ( -z "$td/restlist" ) {
 open(RL,"$td/restlist");
 while(<RL>) {
 	chomp($line = $_);
-	push @restlist,$_;
+	push @restlist,$line;
 }
 close(RL);
+}
+for my $f (@restlist) {
+	printf STDERR "\@restlist member %s\n",$f;
 }
 my @rfilelist;
 my %rfileuniq;
@@ -227,7 +254,7 @@ for my $f (@files) {
 		$name =~ s/^\.\///;
 		if (my ($rfile) = grep {/^${name}/} @restlist) {
 			push @rfilelist,"$f $rfile";
-			$rfileuniq{$f}=1;
+			$rfileuniq{$rfile}=1;
 		}
 	}
 }
@@ -237,15 +264,24 @@ if ($#rfilelist < 0) {
 my %restorelist;
 my %restarchivefiles;
 for my $f (sort keys %rfileuniq) {
-	my @tmplist = grep {/^[^ ]+ $f$/} @restlist;
+	printf STDERR "Looking up %s\n",$f;
+	my $searchf = $f;
+	$searchf =~ s,/,\/,g;
+	$searchf = "zipinfo";
+	my @tmplist = grep {/^[^ ]+ $searchf$/} @restlist;
 	my %tmpuniq;
 	for my $tf (@tmplist) {
+		printf STDERR "\@tmplist item %s about to split\n",$tf;
 		my ($lhs,$rhs) = split(/[ ]+/,$tf,2);
 		$tmpuniq{$lhs}=1;
 	}
 	my $restfiles = "";
 	for my $tf (keys %tmpuniq) {
 		$restfiles .= " ".$tf;
+	}
+	if (length($restfiles) < 1) {
+		printf STDERR "\$restfiles is empty, bailing.\n";
+		exit 1;
 	}
 	my $restfile;
 	chomp($restfile = `/bin/ls -1t $restfiles|head -1`);
@@ -265,6 +301,9 @@ for my $file (sort keys %restarchivefiles) {
 	if (length($arglist) > 0) {
 		printf STDERR "Extracting from %s\n", $file;
 		my $ftinfo=filetype "$file";
+		if (length($ftinfo) < 1) {
+			next;
+		}
 		my $cmd = "$ftinfo -d < \"$file\" | {cd $td/restdir && time restore -xvyf - $arglist;}";
 		printf STDERR "cmd: %s\n", $cmd;
 		system($cmd);
