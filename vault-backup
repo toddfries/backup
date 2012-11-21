@@ -21,6 +21,8 @@ if [ "$user" != "_backup" ]; then
 fi
 HOME=~_backup
 
+PATH=$PATH:/usr/local/bin:/usr/local/sbin
+
 rsynconly=0
 verbose=0
 tty=`tty 2>&1`
@@ -748,6 +750,7 @@ if [ rsynconly -eq 0 ]; then
 set -A dumps 
 for dump in $(sed 's/#.*$//;/^$/d;s/ /%SPACE%/g' $bkd/$dumplistname)
 do
+	dump=$(echo "$dump"|sed 's/%SPACE%/ /g')
 	c=0
 	duplicate=0
 	while [ c -lt ${#dumps[*]} ]
@@ -923,7 +926,6 @@ do
 		eval $(echo "$f" | sed 's,sshsmb://\([^@]*\)@\([^/]*\)/\([^@]*\)@\([^/]*\)/\(.*\)$,sshuser=\1 sshhost=\2 smbauth=\3 smbhost=\4 smbshare=\5,')
 		host=$sshhost
 		auth=$bkd/${sshhost}_${smbhost}smbauth$smbauth
-		smbshare="$(echo "$smbshare"|sed 's/%SPACE%/ /g')"
 		f="${sshhost}-${smbhost}_${smbshare}"
 		sshhost=$(netcheckhost "$host")
 		backupmethod() {
@@ -987,7 +989,7 @@ do
 		method=smb
 		host=$(echo "$f" | sed 's,smb://.*@\([^/]*\)/.*$,\1,')
 		auth=$bkd/${host}_smbauth$(echo "$f" | sed 's,smb://\([^@]*\)@.*$,\1,')
-		f=$(echo "$f" | sed 's/%SPACE%/ /g;s,smb://[^@]*@\([^/]*\)/\(.*\)$,//\1/\2,')
+		f=$(echo "$f" | sed 's,smb://[^@]*@\([^/]*\)/\(.*\)$,//\1/\2,')
 		file="$(echo "$f" | sed 's,//[^/]*/\(.*\)$,\1,')"
 		smbshare="$(echo "$f" | sed 's,//[^/]*/\([^/]*\).*$,\1,')"
 		smbsubdir="$(echo "$f" | sed 's,//[^/]*/[^/]*\(/.*$\),\1,;s,^//.*$,,')"
@@ -1248,9 +1250,9 @@ do
 		f="$host:IFXDUMP"
 		sshhost=$(netcheckhost "$host")
 		backupmethod() {
-			local ifxlevel=$thisl
-			cmd=$(sshcmdline $authuser $host $sshhost)
-			cmd="$cmd $envargs /opt/IBM/informix/bin/ontape -s "
+			local ifxlevel=$thisl scmd
+			scmd=$(sshcmdline $authuser $host $sshhost)
+			cmd="/opt/IBM/informix/bin/ontape -s "
 			# ontape -L claims to accept 0,1,2 but experience
 			# shows only 0,1. so cap to 1.
 			local maxifxlevel=1
@@ -1263,7 +1265,9 @@ do
 			if [ "$rmtaprog" != "none" ]; then
 				args="$args | $rmtaprog -v$rmtaopt"
 			fi
-			echo "$cmd $args" > /dev/stderr
+			echo "$scmd logtape stop" > /dev/stderr
+			echo "$scmd $envargs $cmd $args" > /dev/stderr
+			$scmd $envargs /opt/IBM/informix/bin/logtape stop
 			{
 				nlcount=0
 				nlmax=1
@@ -1275,9 +1279,67 @@ do
 					echo
 					let nlcount=nlcount+1
 				done
-			} | $cmd $args && echo "$successcookie" > /dev/stderr || echo "returned $?" > /dev/stderr
+			} | $scmd $envargs $cmd $args && echo "$successcookie" > /dev/stderr || echo "returned $?" > /dev/stderr
+			$scmd $envargs /opt/IBM/informix/bin/logtape start
 		}
 		listmethod() {
+		}
+	;;
+	sshpgdump*) # sshpgdump://user@host:port/database[/-option/-option]
+		method=sshpgdump
+		host=$(echo "$f" | sed 's,sshpgdump://.*@\([^/]*\)/.*$,\1,')
+		pgport="5432"
+		pgargs=""
+		if [ "${host}" != "${host#*:}" ]; then
+			pgport=$(echo "$host" | sed 's/^.*:\(.*\)$/\1/')
+			host=$(echo "$host" | sed 's/^\(.*\):.*$/\1/')
+		fi
+		authuser=$(echo "$f" | sed 's,sshpgdump://\(.*\)@.*$,\1,')
+		file=$(echo "$f" | sed 's,sshpgdump://.*@[^/]*/\(.*\)$,\1,')
+		if [ "${file}" != "${file#*/}" ]; then
+			newfile=${file%%/*}
+			for _a in $(echo ${file#${newfile}/}|sed 's,/, ,g')
+			do
+				args="$args ${_a}"
+			done
+			file="$newfile"
+		fi
+		db=$file
+		file="PGDB-$file"
+		f="$host:$file"
+		pghost=$(netcheckhost "$host")
+			
+		backupmethod() {
+			local comp
+			if [ "$aprog" = "none" -a "$rmtaprog" ]; then
+				comp="|$rmtaprog -$rmtaopt"
+			else
+				comp=""
+			fi
+			export PGPASSFILE=$bkd/${host}_pgpass
+			echo "PGPASSFILE=$PGPASSFILE" > /dev/stderr
+			# -Fc --compress=0 # only after all db's are 8.3.x & up
+			# similar to tar
+			scmd=$(sshcmdline $authuser $host $pghost)
+			echo "$scmd 'touch .pgpass;chmod 600 .pgpass; dd of=.pgpass'" > /dev/stderr
+			cat $PGPASSFILE | $scmd 'touch .pgpass;chmod 600 .pgpass; dd of=.pgpass'
+			cmd="$scmd /usr/local/bin/pg_dump -h ::1 -p $pgport -Upostgres $args $db$comp"
+			echo "$cmd" > /dev/stderr
+			eval $cmd && echo "$successcookie" > /dev/stderr || echo "returned $?" > /dev/stderr
+		}
+		listmethod() {
+			# For lack of other ideas, show schema but no data
+			$decomp -d < "$outfile" |
+				awk '
+				/^--/		{next}
+				/^$/		{next}
+				/^CREATE TABLE/	{createtable=1}
+				/^\);$/		{createtable=0;print;next}
+				/^COPY/		{copy=1}
+				/^\\\./         {copy=0}
+				/^[A-Z]/	{if (!copy) {print}; next}
+						{if (createtable) {print}}
+			'
 		}
 	;;
 	pgdump*) # pgdump://user@host:port/database[/-option/-option]

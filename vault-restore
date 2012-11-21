@@ -1,0 +1,323 @@
+#!/usr/bin/perl
+
+# Copyright (c) 2012 Todd T. Fries <todd@fries.net>
+#
+# Permission to use, copy, modify, and distribute this software for any
+# purpose with or without fee is hereby granted, provided that the above
+# copyright notice and this permission notice appear in all copies.
+#
+# THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+# WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+# MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+# ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+# WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+# ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+# OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+
+use strict;
+use warnings;
+
+use File::Temp qw(tempdir);
+use Cwd;
+
+my $line;
+my $verbose=0;
+my $i = 0;
+my @ignores;
+
+
+# for now, local restores until experience is built up
+
+sub filetype {
+	my ($f) = @_;
+	my $info = `dd bs=3 count=1 if="$f" 2> /dev/null | hexdump -C| \
+		grep -v "00000000  5d 00 00"`;
+	chomp($info);
+	if (length($info) > 0) {
+		return "lzma";
+	}
+	$info=`file "$f" 2> /dev/null`;
+	chomp($info);
+	if ($info =~ m/gzip compressed data/) {
+		return "gzip";
+	}
+	return "";
+}
+
+sub decomp {
+	my ($f)=@_;
+	my $ftinfo=filetype "$f";
+	my @files;
+	my $cmd;
+	if ($ftinfo eq "lzma") {
+		$cmd = "lzma -d";
+	}
+	if ($ftinfo eq "gzip") {
+		$cmd = "gzip -d";
+	}
+	if (!defined($cmd)) {
+		printf STDERR "pwd = %s\n",&Cwd::cwd();
+		printf STDERR "Unknown filetype of %s: %s\n",$f,$ftinfo;
+		return;
+	}
+	if ($verbose > 0) {
+		printf STDERR "About to: %s -d < %s\n",$ftinfo,$f;
+	}
+	open(LIST,"$cmd < $f |");
+	while(<LIST>) {
+		chomp($line = $_);
+		if ($line =~ /^(Verify tape|Dump   date|Dumped from|Extract directories|Initialize symbol table)/) {
+			next;
+		}
+		if ($verbose > 1) {
+			printf STDERR "About to split line: %s\n",$line;
+		}
+		my ($blank,$lhs,$rhs) = split(/[ ]+/,$line,3);
+		$rhs =~ s/^\.\///;
+		push @files, $rhs;
+	}
+	close(LIST);
+	if ($verbose > 0) {
+		printf STDERR "Done: %s -d < %s\n",$ftinfo,$f;
+	}
+	return sort @files;
+}
+
+while (defined($ARGV[0])) {
+	if ($verbose > 0) {
+		printf STDERR "ARGV[0] = %s\n",$ARGV[0];
+		printf STDERR "ARGV[1] = %s\n",$ARGV[1];
+	}
+	if ($ARGV[0] =~ /^-v$/) {
+		$verbose++;
+		shift @ARGV;
+		next;
+	}
+	if ($ARGV[0] =~ /^-i$/) {
+		if ($verbose > 0) {
+			printf STDERR "push \@ignores,$ARGV[1]\n";
+		}
+		push @ignores,$ARGV[1];
+		shift @ARGV;
+		shift @ARGV;
+		next;
+	}
+	last;
+}
+sub usage {
+	my ($exitval) = @_;
+	print "Usage: $0 backupsetname backupdir\n";
+	exit $exitval;
+}
+
+my $setname=$ARGV[0];
+if ( ! defined($setname)) {
+	usage 1;
+}
+
+# backup directory
+my $bkd="/etc/backup/$setname";
+if (! -d "$bkd" ) {
+	printf "%s directory does not exist!\n",$bkd;
+	usage 2;
+}
+my %conf;
+if ( -f "$bkd/conf" ) {
+	open(CONF,"$bkd/conf");
+	while(<CONF>) {
+		if (/^#/) {
+			next;
+		}
+		if (/^[ \t]*$/) {
+			next;
+		}
+		if (!/=/) {
+			next;
+		}
+		chomp($line=$_);
+		my ($var, $val) = split(/=/,$line,2);
+		if (!defined($val)) {
+			next;
+		}
+		$conf{$var} = $val;
+	}
+	close(CONF);
+}
+my $datadir = $conf{'datadir'};
+if (!defined($datadir)) {
+	printf "No datadir specified in %s\n", "$bkd/conf";
+	exit(1);
+}
+my $hostname;
+chomp($hostname = `hostname`);
+if ( ! -d "$datadir/$hostname" ) {
+	printf "%s/%s in %s/conf does not exist!\n",$datadir,$hostname,$bkd;
+	exit(3);
+}
+my $hostdir="$datadir/$hostname";
+chdir($hostdir) || die "Could not cd to \"$hostdir\"";
+my $subdir=$ARGV[1];
+if (!defined($subdir)) {
+	usage 4;
+}
+if ( ! -d "$subdir" ) {
+	usage 4;
+}
+my $finddir;
+open(DF,"df -P $subdir|");
+while(<DF>) {
+	if (/^Filesystem/) {
+		next;
+	}
+	chomp($line = $_);
+	my (@info) = split(/[ \t]+/,$line);
+	$finddir = $info[5];
+}
+printf "Mount point of %s is %s\n",$subdir,$finddir;
+my $fpat = $subdir;
+$fpat =~ s,//,,;
+$fpat =~ s,[/:],_,g;
+my $td = tempdir ( "vault-restore.XXXXXXXXXXXXXXXXXXXX", DIR => $subdir );
+
+shift @ARGV;
+shift @ARGV;
+
+# any more arguments, files to process in a single non interactive shot
+my @restlist;
+if ( defined($ARGV[0]) ) {
+	@restlist = @ARGV;
+}
+open(TTY,">>/dev/tty");
+
+my @files;
+chomp(@files = `ls -1 *_${fpat}.?.filelist`);
+my %filelist;
+if ($#restlist < 0) {
+for my $f (@files) {
+	if ( ! -e $f ) {
+		next;
+	}
+	printf TTY "Processing %s\n",$f;
+	for my $fl (decomp $f) {
+		$filelist{$fl} = 1;
+	}
+}
+open(RL,">$td/restlist");
+for my $f (sort keys %filelist) {
+	my $ign=-1;
+	my $ignoreit=0;
+	while ($ign < $#ignores ) {
+		my $ignore = $ignores[$ign];
+		if ($verbose > 2) {
+			printf STDERR "Comparing %s and %s\n",$f,$ignore;
+		}
+		if ( $f =~ /$ignore/ ) {
+			$ignoreit = 1;
+			last;
+		}
+		$ign++;
+	}
+	if ($ignoreit > 0) {
+		next;
+	}
+	if ($verbose > 1) {
+		printf STDERR "Checking on file %s\n",$f;
+	}
+	if ( ! -e "$finddir/$f" ) {
+		printf RL "%s\n",$f;
+	}
+}
+close(RL);
+
+if (!defined($ENV{'EDITOR'})) {
+	$ENV{'EDITOR'} = "vi";
+}
+
+system("$ENV{'EDITOR'} $td/restlist");
+if ( -z "$td/restlist" ) {
+	exit 4;
+}
+open(RL,"$td/restlist");
+while(<RL>) {
+	chomp($line = $_);
+	push @restlist,$line;
+}
+close(RL);
+}
+if ($verbose > 0) {
+	for my $f (@restlist) {
+		printf STDERR "\@restlist member %s\n",$f;
+	}
+}
+my @rfilelist;
+my %rfileuniq;
+for my $f (@files) {
+	for my $name (decomp "$f") {
+		$name =~ s/^\.\///;
+		if (my ($rfile) = grep {/^${name}/} @restlist) {
+			push @rfilelist,"$f $rfile";
+			$rfileuniq{$rfile}=1;
+		}
+	}
+}
+if ($#rfilelist < 0) {
+	exit 5;
+}
+my %restorelist;
+my %restarchivefiles;
+for my $f (sort keys %rfileuniq) {
+	if ($verbose > 0) {
+		printf STDERR "Looking up %s\n",$f;
+	}
+	my $searchf = $f;
+	#$searchf =~ s,/,\/,g;
+	my @tmplist = grep {/^[^ ]+ $searchf$/} @rfilelist;
+	if ($verbose > 0) {
+		printf STDERR "\$#rfilelist = %d, \$#tmplist = %d\n", $#rfilelist, $#tmplist;
+	}
+	my %tmpuniq;
+	for my $tf (@tmplist) {
+		if ($verbose > 1) {
+			printf STDERR "\@tmplist item %s about to split\n",$tf;
+		}
+		my ($lhs,$rhs) = split(/[ ]+/,$tf,2);
+		$tmpuniq{$lhs}=1;
+	}
+	my $restfiles = "";
+	for my $tf (keys %tmpuniq) {
+		$restfiles .= " ".$tf;
+	}
+	if (length($restfiles) < 1) {
+		printf STDERR "\$restfiles is empty, bailing.\n";
+		exit 1;
+	}
+	my $restfile;
+	chomp($restfile = `/bin/ls -1t $restfiles|head -1`);
+	$restfile =~ s/\.filelist$//;
+	$restorelist{$f} = $restfile;
+	$restarchivefiles{$restfile}=1;
+}
+mkdir("$td/restdir");
+printf STDERR "Restored files will be in %s/restdir\n",$td;
+for my $file (sort keys %restarchivefiles) {
+	my $arglist = "";
+	for my $a (sort keys %restorelist) {
+		if ($restorelist{$a} eq "$file") {
+			$arglist .= " \"${a}\"";
+		}
+	}
+	if (length($arglist) > 0) {
+		printf STDERR "Extracting from %s\n", $file;
+		my $ftinfo=filetype "$file";
+		if (length($ftinfo) < 1) {
+			next;
+		}
+		my $cmd = sprintf "%s -d < \"%s\" | ".
+		    "(cd %s/restdir && time restore -x%syf - %s)",
+		    $ftinfo,$file,$td,($verbose > 0) ? "v" : "", $arglist;
+		if ($verbose > 0) {
+			printf STDERR "cmd: %s\n", $cmd;
+		}
+		system($cmd);
+	}
+}
