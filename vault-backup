@@ -25,6 +25,7 @@ PATH=$PATH:/usr/local/bin:/usr/local/sbin
 
 rsynconly=0
 verbose=0
+keep=0
 tty=`tty 2>&1`
 if [ "$tty" = "not a tty" ]; then
 	tty=/dev/null
@@ -42,6 +43,11 @@ do
 	-v)
 		# verbose, in this case, output details to tty
 		let verbose=verbose+1
+		shift
+	;;
+	-k)
+		# keep all archives, despite issues reported
+		keep=1
 		shift
 	;;
 	*)
@@ -702,7 +708,8 @@ backupjob() {
 		# If we have no other archive, keep this for later analysis
 		# yes, this will use more disk space on failures, but we want
 		# at least one backup even if it is partial
-		if [ -f "${outfile}" ]; then
+		# if keep=1 we keep it regardless
+		if [ -f "${outfile}" -a keep -eq 0 ]; then
 			rm -f "$tmpfile"*
 		else
 			mv "$tmpfile" "${outfile}-failed" && \
