@@ -1796,9 +1796,11 @@ if [ "$notifydetail" ]; then
 	} | mail -s "$subject (detailed)" $notifydetail
 fi
 if [ "$notifyfail" -a "$(grep "(Failed" "${sumfile}")" ]; then
+	failcount=$(grep "(Failed" "${sumfile}"|wc -l)
+	let failcount=failcount+0
 	{
 		egrep "Uncompressed|\(Failed" "${sumfile}"
-	} | mail -s "$subject FAILURES" $notifyfail
+	} | mail -s "vault-backup: $setname$dumplistsubj $failcount FAILURES" $notifyfail
 fi
 }
 
