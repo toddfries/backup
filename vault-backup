@@ -733,8 +733,8 @@ backupjob() {
 	fi
 }
 file_seconds() {
-	if [ -s "$1" -a "$(grep "^ctime=" "$1")" ]; then
-		sed -n '/^ctime=/{s/^ctime=//;p;}' "$1"
+	if [ -s "$1" -a "$(grep "^ctime=" "$1.timestamp")" ]; then
+		sed -n '/^ctime=/{s/^ctime=//;p;}' "$1.timestamp"
 		return
 	fi
 	set -A stat0 -- $(ls -ndlL "$1")
